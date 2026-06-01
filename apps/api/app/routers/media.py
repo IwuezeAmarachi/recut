@@ -6,6 +6,7 @@ from app.schemas.media import MediaItemOut
 from app.core.config import settings
 from app.lib.store import media_store, project_store
 from app.services.ffmpeg_service import probe_media
+from app.services.transcription import transcribe_media
 
 router = APIRouter()
 
@@ -66,3 +67,22 @@ async def delete_media(project_id: str, media_id: str) -> None:
     if media_id not in bucket:
         raise HTTPException(404, "Media not found")
     del bucket[media_id]
+
+
+@router.post("/{project_id}/media/{media_id}/transcribe")
+async def transcribe(project_id: str, media_id: str) -> dict:
+    bucket = media_store.get(project_id, {})
+    media = bucket.get(media_id)
+    if not media:
+        raise HTTPException(404, "Media not found")
+
+    file_path = str(settings.upload_dir / project_id / Path(media["url"]).name)
+
+    try:
+        segments = await transcribe_media(file_path)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc))
+    except Exception as exc:
+        raise HTTPException(500, f"Transcription failed: {exc}")
+
+    return {"segments": segments}

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from redis import Redis
 from rq import Queue
 from app.core.config import settings

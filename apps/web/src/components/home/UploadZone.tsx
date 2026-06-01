@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { UploadCloud, AlertCircle } from 'lucide-react';
 import { cn, ACCEPTED_VIDEO_TYPES, ACCEPTED_AUDIO_TYPES, MAX_FILE_SIZE, getVideoDimensions, getAudioDuration, formatFileSize } from '@/lib/utils';
 import { useEditorStore } from '@/store/editorStore';
+import { api } from '@/lib/api';
 
 export function UploadZone() {
   const router = useRouter();
@@ -11,11 +12,12 @@ export function UploadZone() {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [uploadPct, setUploadPct] = useState(0);
 
   const addMedia = useEditorStore((s) => s.addMedia);
   const addClipFromMedia = useEditorStore((s) => s.addClipFromMedia);
+  const setMediaApiId = useEditorStore((s) => s.setMediaApiId);
   const reset = useEditorStore((s) => s.reset);
-  const projectId = useEditorStore((s) => s.projectId);
 
   const processFile = useCallback(
     async (file: File) => {
@@ -32,6 +34,7 @@ export function UploadZone() {
       }
 
       setLoading(true);
+      setUploadPct(0);
       reset();
 
       try {
@@ -51,6 +54,10 @@ export function UploadZone() {
           duration = await getAudioDuration(file);
         }
 
+        // Get the freshly-reset projectId from the store
+        const projectId = useEditorStore.getState().projectId;
+
+        // Add to local store immediately so the editor is ready
         const item = addMedia({
           name: file.name,
           type: isVideo ? 'video' : 'audio',
@@ -59,16 +66,24 @@ export function UploadZone() {
           duration,
           width,
           height,
+          uploading: true,
         });
-
         addClipFromMedia(item.id);
+
+        // Create project on server (idempotent — uses the same projectId)
+        await api.projects.create(file.name.replace(/\.[^.]+$/, '') || 'Untitled', projectId);
+
+        // Upload file to server
+        const apiMedia = await api.media.upload(projectId, file, (pct) => setUploadPct(pct));
+        setMediaApiId(item.id, apiMedia.id);
+
         router.push(`/editor/${projectId}`);
-      } catch {
-        setError('Failed to read file. Please try again.');
+      } catch (err) {
+        setError('Failed to process file. Please try again.');
         setLoading(false);
       }
     },
-    [addMedia, addClipFromMedia, reset, router, projectId],
+    [addMedia, addClipFromMedia, setMediaApiId, reset, router],
   );
 
   const handleDrop = useCallback(
@@ -112,9 +127,17 @@ export function UploadZone() {
         />
 
         {loading ? (
-          <div className="flex flex-col items-center gap-3">
+          <div className="flex flex-col items-center gap-3 w-full max-w-xs">
             <div className="h-6 w-6 rounded-full border-2 border-ink-2 border-t-transparent animate-spin" />
-            <p className="text-sm text-ink-2">Loading media…</p>
+            <p className="text-sm text-ink-2">
+              {uploadPct < 100 ? `Uploading… ${uploadPct}%` : 'Processing…'}
+            </p>
+            <div className="h-1 w-full rounded-full bg-surface-3 overflow-hidden">
+              <div
+                className="h-full bg-ink-2 rounded-full transition-all duration-300"
+                style={{ width: `${uploadPct}%` }}
+              />
+            </div>
           </div>
         ) : (
           <>

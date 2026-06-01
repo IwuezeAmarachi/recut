@@ -48,6 +48,8 @@ interface EditorStore {
   updateExportSettings: (settings: Partial<ExportSettings>) => void;
   recomputeDuration: () => void;
 
+  setMediaApiId: (localId: string, apiId: string) => void;
+
   // Captions
   addCaption: (startTime: number, text?: string) => Caption;
   updateCaption: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
@@ -194,6 +196,13 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set((s) => ({
       captions: s.captions.filter((c) => c.id !== id),
       selectedCaptionId: s.selectedCaptionId === id ? null : s.selectedCaptionId,
+    })),
+
+  setMediaApiId: (localId, apiId) =>
+    set((s) => ({
+      mediaItems: s.mediaItems.map((m) =>
+        m.id === localId ? { ...m, apiId, uploading: false } : m,
+      ),
     })),
 
   selectCaption: (id) => set({ selectedCaptionId: id, selectedClipId: null }),

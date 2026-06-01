@@ -1,11 +1,15 @@
 'use client';
-import { useState, useRef } from 'react';
-import { Captions, Sparkles, Trash2, Plus, AlignCenter, AlignLeft, AlignRight, Mic, MicOff } from 'lucide-react';
+import { useState } from 'react';
+import {
+  Captions, Sparkles, Trash2, Plus,
+  AlignCenter, AlignLeft, AlignRight,
+  Loader2, AlertCircle,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Toggle } from '@/components/ui/Toggle';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
 import { useEditorStore } from '@/store/editorStore';
+import { api } from '@/lib/api';
 import type { CaptionPosition, CaptionStyle } from '@/types/editor';
 
 const FONT_SIZES = [14, 18, 22, 28, 36];
@@ -23,81 +27,45 @@ export function CaptionPanel() {
   const removeCaption = useEditorStore((s) => s.removeCaption);
   const selectCaption = useEditorStore((s) => s.selectCaption);
   const currentTime = useEditorStore((s) => s.currentTime);
-  const captionsGenerating = useEditorStore((s) => s.captionsGenerating);
-  const setCaptionsGenerating = useEditorStore((s) => s.setCaptionsGenerating);
-  const setPlaying = useEditorStore((s) => s.setPlaying);
   const mediaItems = useEditorStore((s) => s.mediaItems);
+  const projectId = useEditorStore((s) => s.projectId);
 
   const selected = captions.find((c) => c.id === selectedCaptionId);
-  const [listenMode, setListenMode] = useState(false);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
-  // ── Live speech recognition ───────────────────────────────────────────────
-  const startListening = () => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  // Find first video with a server-side apiId (has been uploaded)
+  const uploadedVideo = mediaItems.find((m) => m.type === 'video' && m.apiId);
 
-    if (!SpeechRecognition) {
-      alert('Speech recognition is not supported in this browser. Use Chrome or Edge.');
-      return;
-    }
+  const generateCaptions = async () => {
+    if (!uploadedVideo?.apiId) return;
+    setGenerating(true);
+    setGenError(null);
 
-    const rec = new SpeechRecognition() as SpeechRecognition;
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = 'en-US';
+    try {
+      const { segments } = await api.media.transcribe(projectId, uploadedVideo.apiId);
 
-    let currentId: string | null = null;
-    let segmentStart = currentTime;
-
-    rec.onresult = (event: SpeechRecognitionEvent) => {
-      const result = event.results[event.results.length - 1];
-      const transcript = result[0].transcript.trim();
-      if (!transcript) return;
-
-      const store = useEditorStore.getState();
-      const t = store.currentTime;
-
-      if (result.isFinal) {
-        // Finalise current caption
-        if (currentId) {
-          store.updateCaption(currentId, { text: transcript, duration: Math.max(1, t - segmentStart) });
-          currentId = null;
-        } else {
-          store.addCaption(segmentStart, transcript);
-        }
-        segmentStart = t;
-      } else {
-        // Live preview caption
-        if (!currentId) {
-          const cap = store.addCaption(segmentStart, transcript);
-          currentId = cap.id;
-        } else {
-          store.updateCaption(currentId, { text: transcript });
-        }
+      if (segments.length === 0) {
+        setGenError('No speech detected in this video.');
+        return;
       }
-    };
 
-    rec.onerror = () => {
-      setListenMode(false);
-      setPlaying(false);
-    };
-
-    rec.onend = () => {
-      setListenMode(false);
-    };
-
-    recognitionRef.current = rec;
-    rec.start();
-    setListenMode(true);
-    setPlaying(true); // Start playing video so speech recognition follows along
-  };
-
-  const stopListening = () => {
-    recognitionRef.current?.stop();
-    recognitionRef.current = null;
-    setListenMode(false);
-    setPlaying(false);
+      // Replace existing captions with the fresh transcription
+      captions.slice().forEach((c) => removeCaption(c.id));
+      segments.forEach(({ start, end, text }) => {
+        const cap = addCaption(start, text);
+        updateCaption(cap.id, { duration: Math.max(0.5, end - start) });
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Transcription failed';
+      if (msg.includes('OPENAI_API_KEY')) {
+        setGenError('Set OPENAI_API_KEY on the server to enable auto-captions.');
+      } else {
+        setGenError(msg);
+      }
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const updateStyle = (updates: Partial<CaptionStyle>) => {
@@ -105,59 +73,67 @@ export function CaptionPanel() {
     updateCaption(selected.id, { style: { ...selected.style, ...updates } });
   };
 
+  const canGenerate = !!uploadedVideo?.apiId && !uploadedVideo.uploading;
+
   return (
     <div className="flex flex-col gap-2 p-4">
-      {/* Live speech-to-text */}
+      {/* Auto-generate from video — TikTok / CapCut style */}
       <div className="rounded-lg bg-surface-2 p-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex gap-2.5">
-            <div className={cn(
-              'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors',
-              listenMode ? 'bg-ink-2' : 'bg-surface-3',
-            )}>
-              {listenMode
-                ? <Mic size={13} className="text-bg" strokeWidth={1.75} />
-                : <Mic size={13} className="text-ink-2" strokeWidth={1.75} />}
+        <div className="flex items-start gap-2.5">
+          <div className={cn(
+            'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg',
+            generating ? 'bg-ink-2' : 'bg-surface-3',
+          )}>
+            {generating
+              ? <Loader2 size={13} className="animate-spin text-bg" />
+              : <Sparkles size={13} className="text-ink-2" strokeWidth={1.75} />}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-medium text-ink-1">Auto Captions</p>
+              {generating && (
+                <span className="flex items-center gap-1 text-2xs text-ink-2">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-2" />
+                  Transcribing…
+                </span>
+              )}
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <p className="text-xs font-medium text-ink-1">Auto Captions</p>
-                {listenMode && (
-                  <span className="flex items-center gap-1 text-2xs text-ink-2">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-2" />
-                    Listening…
-                  </span>
-                )}
-              </div>
-              <p className="mt-0.5 text-2xs text-ink-3 leading-relaxed">
-                {listenMode
-                  ? 'Video is playing — speak or play audio. Captions are being captured in real time.'
-                  : 'Listens to your video as it plays and creates timestamped captions automatically.'}
-              </p>
-            </div>
+            <p className="mt-0.5 text-2xs text-ink-3 leading-relaxed">
+              {generating
+                ? 'Whisper AI is reading your video audio — this takes 10–30 seconds.'
+                : 'Transcribes your video\'s audio using Whisper AI and creates perfectly timed captions.'}
+            </p>
           </div>
         </div>
 
-        <div className="mt-3 flex gap-2">
-          {listenMode ? (
-            <Button variant="outline" size="sm" className="flex-1" onClick={stopListening}>
-              <MicOff size={12} /> Stop
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1"
-              disabled={!mediaItems.length}
-              onClick={startListening}
-            >
-              <Mic size={12} /> Start listening
-            </Button>
+        <div className="mt-3">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            disabled={!canGenerate || generating}
+            onClick={generateCaptions}
+          >
+            {generating ? (
+              <><Loader2 size={12} className="animate-spin" /> Transcribing…</>
+            ) : (
+              <><Sparkles size={12} /> Generate captions from video</>
+            )}
+          </Button>
+
+          {!uploadedVideo && (
+            <p className="mt-2 text-2xs text-ink-3">Import a video first.</p>
+          )}
+          {uploadedVideo?.uploading && (
+            <p className="mt-2 text-2xs text-ink-3">Waiting for upload to finish…</p>
           )}
         </div>
 
-        {!mediaItems.length && (
-          <p className="mt-2 text-2xs text-ink-3">Import a video first.</p>
+        {genError && (
+          <div className="mt-2 flex items-start gap-1.5 rounded-md bg-red-400/10 px-2.5 py-2 text-2xs text-red-400">
+            <AlertCircle size={11} className="mt-0.5 shrink-0" />
+            {genError}
+          </div>
         )}
       </div>
 
@@ -285,7 +261,7 @@ export function CaptionPanel() {
         <div className="rounded-lg border border-dashed border-edge p-4 text-center">
           <Captions size={20} className="mx-auto mb-2 text-ink-3" strokeWidth={1.5} />
           <p className="text-xs text-ink-3">No captions yet</p>
-          <p className="text-2xs text-ink-3 mt-0.5">Click "Start listening" to auto-generate, or click on the CC track</p>
+          <p className="text-2xs text-ink-3 mt-0.5">Click "Generate captions from video" above</p>
         </div>
       )}
     </div>

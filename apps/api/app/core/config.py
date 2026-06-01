@@ -17,5 +17,8 @@ class Settings(BaseSettings):
     ffmpeg_path: str = "ffmpeg"
     ffprobe_path: str = "ffprobe"
 
+    # OpenAI (for Whisper transcription)
+    openai_api_key: str = ""
+
 
 settings = Settings()

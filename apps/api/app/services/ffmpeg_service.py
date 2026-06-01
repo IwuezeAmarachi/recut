@@ -1,3 +1,4 @@
+from __future__ import annotations
 import asyncio
 import json
 from app.core.config import settings
@@ -81,6 +82,7 @@ def build_trim_args(
         "-af", af,
         "-c:v", codec_flag,
         "-b:v", f"{bitrate_kbps}k",
+        "-preset", "medium",
         "-c:a", "aac",
         "-b:a", "192k",
         "-movflags", "+faststart",

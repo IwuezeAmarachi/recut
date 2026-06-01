@@ -9,8 +9,11 @@ router = APIRouter()
 @router.post("", response_model=ProjectOut, status_code=201)
 async def create_project(body: ProjectCreate) -> ProjectOut:
     now = datetime.now(timezone.utc)
-    project = {"id": _new_id(), "name": body.name, "created_at": now, "updated_at": now}
-    project_store[project["id"]] = project
+    project_id = body.id or _new_id()
+    if project_id in project_store:
+        return ProjectOut(**project_store[project_id])
+    project = {"id": project_id, "name": body.name, "created_at": now, "updated_at": now}
+    project_store[project_id] = project
     return ProjectOut(**project)
 
 

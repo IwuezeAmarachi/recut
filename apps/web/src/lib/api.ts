@@ -1,4 +1,4 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+export const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -35,10 +35,19 @@ export interface ApiExportJob {
   error: string | null;
 }
 
+export interface TranscriptSegment {
+  start: number;
+  end: number;
+  text: string;
+}
+
 export const api = {
   projects: {
-    create: (name: string) =>
-      request<ApiProject>('/projects', { method: 'POST', body: JSON.stringify({ name }) }),
+    create: (name: string, id?: string) =>
+      request<ApiProject>('/projects', {
+        method: 'POST',
+        body: JSON.stringify({ name, id }),
+      }),
     get: (id: string) => request<ApiProject>(`/projects/${id}`),
     update: (id: string, name: string) =>
       request<ApiProject>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
@@ -64,13 +73,18 @@ export const api = {
       });
     },
     list: (projectId: string) => request<ApiMediaItem[]>(`/projects/${projectId}/media`),
+    transcribe: (projectId: string, mediaId: string) =>
+      request<{ segments: TranscriptSegment[] }>(
+        `/projects/${projectId}/media/${mediaId}/transcribe`,
+        { method: 'POST' },
+      ),
   },
 
   exports: {
-    create: (projectId: string, settings: object) =>
+    create: (projectId: string, body: object) =>
       request<ApiExportJob>(`/projects/${projectId}/exports`, {
         method: 'POST',
-        body: JSON.stringify(settings),
+        body: JSON.stringify(body),
       }),
     get: (jobId: string) => request<ApiExportJob>(`/exports/${jobId}`),
   },

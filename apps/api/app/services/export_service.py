@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Export pipeline — called as an RQ background job.
 
@@ -110,4 +111,4 @@ async def _export_pipeline(job_id: str, project_id: str, req: dict) -> None:
             update("error", 85, error=f"Concat failed: {err[:200]}")
             return
 
-        update("done", 100, output_url=f"/exports/{output_name}")
+        update("done", 100, output_url=f"/downloads/{output_name}")

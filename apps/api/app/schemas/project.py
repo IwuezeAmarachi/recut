@@ -1,9 +1,11 @@
+from __future__ import annotations
 from pydantic import BaseModel, field_validator
 from datetime import datetime
 
 
 class ProjectCreate(BaseModel):
     name: str
+    id: str | None = None  # client may provide its own ID
 
     @field_validator("name")
     @classmethod

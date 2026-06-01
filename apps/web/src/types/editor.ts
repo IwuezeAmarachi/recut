@@ -24,6 +24,7 @@ export interface Caption {
 
 export interface MediaItem {
   id: string;
+  apiId?: string;       // server-side media ID after upload
   name: string;
   type: 'video' | 'audio';
   file: File;
@@ -32,6 +33,7 @@ export interface MediaItem {
   width?: number;
   height?: number;
   thumbnailUrl?: string;
+  uploading?: boolean;  // true while the file is being sent to the server
 }
 
 export interface Clip {

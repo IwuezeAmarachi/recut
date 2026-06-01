@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Progress from '@radix-ui/react-progress';
 import { X, Download, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { useEditorStore } from '@/store/editorStore';
+import { api, BASE } from '@/lib/api';
 import type { Resolution, Codec } from '@/types/editor';
 
 type ExportState = 'idle' | 'processing' | 'done' | 'error';
@@ -32,33 +33,96 @@ export function ExportModal({ open, onClose }: ExportModalProps) {
   const updateExportSettings = useEditorStore((s) => s.updateExportSettings);
   const noiseReductionEnabled = useEditorStore((s) => s.noiseReductionEnabled);
   const duration = useEditorStore((s) => s.duration);
+  const clips = useEditorStore((s) => s.clips);
+  const mediaItems = useEditorStore((s) => s.mediaItems);
+  const projectId = useEditorStore((s) => s.projectId);
 
   const [state, setState] = useState<ExportState>('idle');
   const [progress, setProgress] = useState(0);
+  const [outputUrl, setOutputUrl] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const startExport = () => {
+  // Clean up polling on unmount
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  const startExport = async () => {
+    // Verify all media has been uploaded
+    const unuploaded = clips.filter((c) => {
+      const media = mediaItems.find((m) => m.id === c.mediaId);
+      return !media?.apiId;
+    });
+    if (unuploaded.length > 0) {
+      setErrorMsg('Some clips are still uploading — please wait a moment and try again.');
+      setState('error');
+      return;
+    }
+
     setState('processing');
     setProgress(0);
+    setErrorMsg(null);
+    setOutputUrl(null);
 
-    // Simulate export progress
-    const totalMs = Math.min(duration * 400, 8000);
-    const startTime = Date.now();
-    const tick = () => {
-      const elapsed = Date.now() - startTime;
-      const pct = Math.min(100, Math.round((elapsed / totalMs) * 100));
-      setProgress(pct);
-      if (pct < 100) {
-        requestAnimationFrame(tick);
-      } else {
-        setState('done');
+    // Build export payload
+    const exportClips = clips
+      .filter((c) => c.type === 'video')
+      .map((c) => {
+        const media = mediaItems.find((m) => m.id === c.mediaId)!;
+        return {
+          media_id: media.apiId!,
+          start_time: c.startTime,
+          duration: c.duration,
+          trim_in: c.trimIn,
+          trim_out: c.trimOut,
+          speed: c.speed,
+          volume: c.volume,
+          track_index: c.trackIndex,
+        };
+      });
+
+    let jobId: string;
+    try {
+      const job = await api.exports.create(projectId, {
+        clips: exportClips,
+        resolution: exportSettings.resolution,
+        codec: exportSettings.codec,
+        bitrate: exportSettings.bitrate,
+        noise_reduction: noiseReductionEnabled,
+      });
+      jobId = job.job_id;
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to start export');
+      setState('error');
+      return;
+    }
+
+    // Poll every 2 seconds for job status
+    pollRef.current = setInterval(async () => {
+      try {
+        const job = await api.exports.get(jobId);
+        setProgress(job.progress);
+
+        if (job.status === 'done' && job.output_url) {
+          clearInterval(pollRef.current!);
+          setOutputUrl(job.output_url);
+          setState('done');
+        } else if (job.status === 'error') {
+          clearInterval(pollRef.current!);
+          setErrorMsg(job.error ?? 'Export failed');
+          setState('error');
+        }
+      } catch {
+        // transient poll error — keep retrying
       }
-    };
-    requestAnimationFrame(tick);
+    }, 2000);
   };
 
   const handleClose = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
     setState('idle');
     setProgress(0);
+    setOutputUrl(null);
+    setErrorMsg(null);
     onClose();
   };
 
@@ -81,8 +145,10 @@ export function ExportModal({ open, onClose }: ExportModalProps) {
             </div>
 
             <div className="p-5 space-y-5">
-              {state === 'done' ? (
-                <ExportSuccess onClose={handleClose} />
+              {state === 'done' && outputUrl ? (
+                <ExportSuccess outputUrl={`${BASE}${outputUrl}`} onClose={handleClose} />
+              ) : state === 'error' ? (
+                <ExportError message={errorMsg} onRetry={() => setState('idle')} onClose={handleClose} />
               ) : state === 'processing' ? (
                 <ExportProgress progress={progress} />
               ) : (
@@ -184,28 +250,16 @@ export function ExportModal({ open, onClose }: ExportModalProps) {
 }
 
 function ResolutionOption({
-  value,
-  label,
-  desc,
-  premium,
-  selected,
-  onSelect,
+  value, label, desc, premium, selected, onSelect,
 }: {
-  value: Resolution;
-  label: string;
-  desc: string;
-  premium?: boolean;
-  selected: boolean;
-  onSelect: () => void;
+  value: Resolution; label: string; desc: string; premium?: boolean; selected: boolean; onSelect: () => void;
 }) {
   return (
     <button
       onClick={onSelect}
       className={cn(
         'flex w-full items-center justify-between rounded-lg border p-3 transition-colors',
-        selected
-          ? 'border-edge-strong bg-surface-2'
-          : 'border-edge bg-surface-2/50 hover:bg-surface-2',
+        selected ? 'border-edge-strong bg-surface-2' : 'border-edge bg-surface-2/50 hover:bg-surface-2',
       )}
     >
       <div className="flex items-center gap-3">
@@ -231,16 +285,16 @@ function ExportProgress({ progress }: { progress: number }) {
       <p className="text-sm font-medium text-ink-1">Exporting…</p>
       <Progress.Root className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
         <Progress.Indicator
-          className="h-full bg-ink-2 transition-transform duration-200 ease-out rounded-full"
+          className="h-full bg-ink-2 transition-transform duration-500 ease-out rounded-full"
           style={{ transform: `translateX(-${100 - progress}%)` }}
         />
       </Progress.Root>
-      <p className="text-2xs text-ink-3 tabular-nums">{progress}% — applying processing pipeline</p>
+      <p className="text-2xs text-ink-3 tabular-nums">{progress}% — rendering pipeline</p>
     </div>
   );
 }
 
-function ExportSuccess({ onClose }: { onClose: () => void }) {
+function ExportSuccess({ outputUrl, onClose }: { outputUrl: string; onClose: () => void }) {
   return (
     <div className="flex flex-col items-center gap-4 py-4 text-center">
       <CheckCircle2 size={36} className="text-ink-2" strokeWidth={1.25} />
@@ -252,9 +306,27 @@ function ExportSuccess({ onClose }: { onClose: () => void }) {
         <Button variant="outline" size="md" className="flex-1" onClick={onClose}>
           Close
         </Button>
-        <Button variant="primary" size="md" className="flex-1">
-          <Download size={14} /> Download
-        </Button>
+        <a href={outputUrl} download className="flex-1">
+          <Button variant="primary" size="md" className="w-full">
+            <Download size={14} /> Download
+          </Button>
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function ExportError({ message, onRetry, onClose }: { message: string | null; onRetry: () => void; onClose: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-4 py-4 text-center">
+      <AlertCircle size={36} className="text-red-400" strokeWidth={1.25} />
+      <div>
+        <p className="text-sm font-medium text-ink-1">Export failed</p>
+        {message && <p className="mt-1 text-xs text-ink-3">{message}</p>}
+      </div>
+      <div className="flex gap-2 w-full">
+        <Button variant="outline" size="md" className="flex-1" onClick={onClose}>Close</Button>
+        <Button variant="primary" size="md" className="flex-1" onClick={onRetry}>Try again</Button>
       </div>
     </div>
   );

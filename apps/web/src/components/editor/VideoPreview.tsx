@@ -48,64 +48,62 @@ class AudioProcessor {
     let last: AudioNode = this.source;
 
     if (this.nrEnabled) {
-      // High-pass: remove rumble below 100 Hz
+      // ── Stage 1: Subsonic rumble cut (wind, handling, HVAC)
       const hp = this.ctx.createBiquadFilter();
       hp.type = 'highpass';
-      hp.frequency.value = 100;
-      hp.Q.value = 1.2;
+      hp.frequency.value = 120;
+      hp.Q.value = 0.9;
 
-      // Low-shelf: cut low-end mud by 8 dB
+      // ── Stage 2: Low-shelf mud cut
       const ls = this.ctx.createBiquadFilter();
       ls.type = 'lowshelf';
-      ls.frequency.value = 250;
-      ls.gain.value = -8;
+      ls.frequency.value = 300;
+      ls.gain.value = -9;
 
-      // Notch 50 Hz + 2nd harmonic 100 Hz (EU power line hum)
-      const n50 = this.ctx.createBiquadFilter();
-      n50.type = 'notch';
-      n50.frequency.value = 50;
-      n50.Q.value = 25;
+      // ── Stage 3: Power-line hum notches (EU 50/100/150 Hz + US 60/120/180 Hz)
+      const humFreqs = [50, 100, 150, 200, 60, 120, 180, 240];
+      const notches = humFreqs.map((freq) => {
+        const n = this.ctx!.createBiquadFilter();
+        n.type = 'notch';
+        n.frequency.value = freq;
+        n.Q.value = 30;
+        return n;
+      });
 
-      const n100 = this.ctx.createBiquadFilter();
-      n100.type = 'notch';
-      n100.frequency.value = 100;
-      n100.Q.value = 25;
-
-      // Notch 60 Hz + 120 Hz (US power line hum)
-      const n60 = this.ctx.createBiquadFilter();
-      n60.type = 'notch';
-      n60.frequency.value = 60;
-      n60.Q.value = 25;
-
-      const n120 = this.ctx.createBiquadFilter();
-      n120.type = 'notch';
-      n120.frequency.value = 120;
-      n120.Q.value = 25;
-
-      // High-shelf: tame harsh 4–8 kHz range by 4 dB
+      // ── Stage 4: Harsh air / sibilance tame (4–8 kHz)
       const hs = this.ctx.createBiquadFilter();
       hs.type = 'highshelf';
-      hs.frequency.value = 5000;
-      hs.gain.value = -4;
+      hs.frequency.value = 5500;
+      hs.gain.value = -5;
 
+      // ── Stage 5: Noise gate via expander compressor
+      // A very low threshold + very high ratio = downward expander that
+      // silences quiet background between speech utterances.
+      const gate = this.ctx.createDynamicsCompressor();
+      gate.threshold.value = -55;  // open gate above -55 dBFS
+      gate.knee.value = 5;
+      gate.ratio.value = 20;       // almost brick-wall below threshold
+      gate.attack.value = 0.005;   // 5 ms — fast enough to not clip speech onset
+      gate.release.value = 0.35;   // 350 ms — slow enough to avoid choppy tails
+
+      // Chain everything
       last.connect(hp);
       hp.connect(ls);
-      ls.connect(n50);
-      n50.connect(n100);
-      n100.connect(n60);
-      n60.connect(n120);
-      n120.connect(hs);
-      last = hs;
+      let node: AudioNode = ls;
+      for (const n of notches) { node.connect(n); node = n; }
+      node.connect(hs);
+      hs.connect(gate);
+      last = gate;
     }
 
     if (this.nrEnabled || this.normalizeEnabled) {
-      // Compressor: acts as leveller for normalize, or as a noise suppressor
+      // ── Final stage: leveller / makeup gain
       const comp = this.ctx.createDynamicsCompressor();
-      comp.threshold.value = this.normalizeEnabled ? -18 : -30;
-      comp.knee.value = this.normalizeEnabled ? 25 : 10;
-      comp.ratio.value = this.normalizeEnabled ? 6 : 16;
+      comp.threshold.value = this.normalizeEnabled ? -18 : -24;
+      comp.knee.value = this.normalizeEnabled ? 20 : 8;
+      comp.ratio.value = this.normalizeEnabled ? 5 : 12;
       comp.attack.value = 0.003;
-      comp.release.value = 0.2;
+      comp.release.value = 0.15;
       last.connect(comp);
       last = comp;
     }

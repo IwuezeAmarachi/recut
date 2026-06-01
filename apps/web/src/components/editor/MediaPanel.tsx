@@ -1,16 +1,19 @@
 'use client';
 import { useRef, useState } from 'react';
-import { Plus, Film, Music, Trash2, ChevronDown } from 'lucide-react';
+import { Plus, Film, Music, Trash2, ChevronDown, Loader2 } from 'lucide-react';
 import { cn, ACCEPTED_VIDEO_TYPES, ACCEPTED_AUDIO_TYPES, getVideoDimensions, getAudioDuration, formatDuration } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useEditorStore } from '@/store/editorStore';
+import { api } from '@/lib/api';
 import type { MediaItem } from '@/types/editor';
 
 export function MediaPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
   const mediaItems = useEditorStore((s) => s.mediaItems);
+  const projectId = useEditorStore((s) => s.projectId);
   const addMedia = useEditorStore((s) => s.addMedia);
+  const setMediaApiId = useEditorStore((s) => s.setMediaApiId);
   const removeMedia = useEditorStore((s) => s.removeMedia);
   const addClipFromMedia = useEditorStore((s) => s.addClipFromMedia);
 
@@ -35,7 +38,22 @@ export function MediaPanel() {
         } else {
           duration = await getAudioDuration(file);
         }
-        addMedia({ name: file.name, type: isVideo ? 'video' : 'audio', file, url, duration, width, height });
+
+        const item = addMedia({
+          name: file.name,
+          type: isVideo ? 'video' : 'audio',
+          file,
+          url,
+          duration,
+          width,
+          height,
+          uploading: true,
+        });
+
+        // Upload to server in background — don't block UI
+        api.media.upload(projectId, file)
+          .then((apiMedia) => setMediaApiId(item.id, apiMedia.id))
+          .catch(() => { /* upload failed silently; export will warn */ });
       } catch {
         URL.revokeObjectURL(url);
       }
@@ -189,15 +207,19 @@ function MediaCard({
         <p className="text-2xs text-ink-3 mt-0.5">{formatDuration(item.duration)}</p>
       </div>
 
-      {/* Remove button */}
-      {hover && (
+      {/* Upload spinner / remove button */}
+      {item.uploading ? (
+        <div className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center">
+          <Loader2 size={12} className="animate-spin text-ink-3" />
+        </div>
+      ) : hover ? (
         <button
           onClick={(e) => { e.stopPropagation(); onRemove(item.id); }}
           className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded bg-surface-3 text-ink-3 hover:text-red-400 transition-colors"
         >
           <Trash2 size={10} />
         </button>
-      )}
+      ) : null}
     </div>
   );
 }
