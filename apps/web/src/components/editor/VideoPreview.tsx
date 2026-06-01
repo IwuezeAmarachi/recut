@@ -48,20 +48,20 @@ class AudioProcessor {
     let last: AudioNode = this.source;
 
     if (this.nrEnabled) {
-      // ── Stage 1: Subsonic rumble cut (wind, handling, HVAC)
+      // Stage 1: Subsonic rumble cut — stays below voice fundamentals
       const hp = this.ctx.createBiquadFilter();
       hp.type = 'highpass';
-      hp.frequency.value = 120;
-      hp.Q.value = 0.9;
+      hp.frequency.value = 80;
+      hp.Q.value = 0.7;
 
-      // ── Stage 2: Low-shelf mud cut
+      // Stage 2: Gentle low-shelf to reduce HVAC/room rumble without killing warmth
       const ls = this.ctx.createBiquadFilter();
       ls.type = 'lowshelf';
-      ls.frequency.value = 300;
-      ls.gain.value = -9;
+      ls.frequency.value = 200;
+      ls.gain.value = -4;
 
-      // ── Stage 3: Power-line hum notches (EU 50/100/150 Hz + US 60/120/180 Hz)
-      const humFreqs = [50, 100, 150, 200, 60, 120, 180, 240];
+      // Stage 3: Power-line hum notches (EU 50/100/150 Hz + US 60/120/180 Hz)
+      const humFreqs = [50, 100, 150, 60, 120, 180];
       const notches = humFreqs.map((freq) => {
         const n = this.ctx!.createBiquadFilter();
         n.type = 'notch';
@@ -70,40 +70,29 @@ class AudioProcessor {
         return n;
       });
 
-      // ── Stage 4: Harsh air / sibilance tame (4–8 kHz)
+      // Stage 4: Gentle sibilance tame
       const hs = this.ctx.createBiquadFilter();
       hs.type = 'highshelf';
-      hs.frequency.value = 5500;
-      hs.gain.value = -5;
+      hs.frequency.value = 8000;
+      hs.gain.value = -3;
 
-      // ── Stage 5: Noise gate via expander compressor
-      // A very low threshold + very high ratio = downward expander that
-      // silences quiet background between speech utterances.
-      const gate = this.ctx.createDynamicsCompressor();
-      gate.threshold.value = -55;  // open gate above -55 dBFS
-      gate.knee.value = 5;
-      gate.ratio.value = 20;       // almost brick-wall below threshold
-      gate.attack.value = 0.005;   // 5 ms — fast enough to not clip speech onset
-      gate.release.value = 0.35;   // 350 ms — slow enough to avoid choppy tails
-
-      // Chain everything
+      // Chain: hp → ls → notches → hs
       last.connect(hp);
       hp.connect(ls);
       let node: AudioNode = ls;
       for (const n of notches) { node.connect(n); node = n; }
       node.connect(hs);
-      hs.connect(gate);
-      last = gate;
+      last = hs;
     }
 
-    if (this.nrEnabled || this.normalizeEnabled) {
-      // ── Final stage: leveller / makeup gain
+    if (this.normalizeEnabled) {
+      // Gentle leveller — only active when the user explicitly enables Normalize
       const comp = this.ctx.createDynamicsCompressor();
-      comp.threshold.value = this.normalizeEnabled ? -18 : -24;
-      comp.knee.value = this.normalizeEnabled ? 20 : 8;
-      comp.ratio.value = this.normalizeEnabled ? 5 : 12;
-      comp.attack.value = 0.003;
-      comp.release.value = 0.15;
+      comp.threshold.value = -18;
+      comp.knee.value = 20;
+      comp.ratio.value = 4;
+      comp.attack.value = 0.01;
+      comp.release.value = 0.25;
       last.connect(comp);
       last = comp;
     }
@@ -162,17 +151,19 @@ export function VideoPreview() {
   const durationRef = useRef(duration);
   durationRef.current = duration;
 
-  // ── Sync video src ─────────────────────────────────────────────────────────
+  // ── Sync video src — use denoised version when NR is on and ready ──────────
   const srcRef = useRef('');
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    const newSrc = activeMedia?.url ?? '';
+    const newSrc = (noiseReductionEnabled && activeMedia?.denoisedUrl)
+      ? activeMedia.denoisedUrl
+      : activeMedia?.url ?? '';
     if (srcRef.current === newSrc) return;
     srcRef.current = newSrc;
     video.src = newSrc;
     if (newSrc) video.load();
-  }, [activeMedia?.url]);
+  }, [activeMedia?.url, activeMedia?.denoisedUrl, noiseReductionEnabled]);
 
   // ── Volume ─────────────────────────────────────────────────────────────────
   useEffect(() => {

@@ -5,6 +5,51 @@ import { useEditorStore } from '@/store/editorStore';
 import { clipEffectiveDuration } from '@/types/editor';
 import type { Clip } from '@/types/editor';
 
+// ── Real waveform renderer ───────────────────────────────────────────────────
+function Waveform({
+  peaks,
+  clipDuration,
+  trimIn,
+  trimOut,
+  color,
+}: {
+  peaks: number[];
+  clipDuration: number;
+  trimIn: number;
+  trimOut: number;
+  color: string;
+}) {
+  if (!peaks.length) return null;
+  const startFrac = clipDuration > 0 ? trimIn / clipDuration : 0;
+  const endFrac = clipDuration > 0 ? (clipDuration - trimOut) / clipDuration : 1;
+  const startIdx = Math.floor(startFrac * peaks.length);
+  const endIdx = Math.ceil(endFrac * peaks.length);
+  const visible = peaks.slice(startIdx, endIdx);
+
+  return (
+    <svg
+      className="absolute inset-0 w-full h-full"
+      preserveAspectRatio="none"
+      viewBox={`0 0 ${visible.length} 2`}
+    >
+      {visible.map((amp, i) => {
+        const h = Math.max(0.04, amp);
+        return (
+          <rect
+            key={i}
+            x={i}
+            y={1 - h}
+            width={0.7}
+            height={h * 2}
+            fill={color}
+            opacity={0.75}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
 interface ClipItemProps {
   clip: Clip;
   pxPerSec: number;
@@ -14,6 +59,7 @@ interface ClipItemProps {
 export function ClipItem({ clip, pxPerSec, isSelected }: ClipItemProps) {
   const selectClip = useEditorStore((s) => s.selectClip);
   const updateClip = useEditorStore((s) => s.updateClip);
+  const mediaItem = useEditorStore((s) => s.mediaItems.find((m) => m.id === clip.mediaId));
 
   const [trimming, setTrimming] = useState<{ edge: 'in' | 'out'; dur: number } | null>(null);
 
@@ -117,13 +163,23 @@ export function ClipItem({ clip, pxPerSec, isSelected }: ClipItemProps) {
       </div>
 
       {/* ── Content ────────────────────────────────────────────────────── */}
-      <div className="absolute inset-0 flex items-center overflow-hidden px-3.5">
-        {clip.type === 'audio' ? (
-          <AudioWaveform width={width} />
+      <div className="absolute inset-0 overflow-hidden">
+        {mediaItem?.waveformPeaks ? (
+          <Waveform
+            peaks={mediaItem.waveformPeaks}
+            clipDuration={clip.duration}
+            trimIn={clip.trimIn}
+            trimOut={clip.trimOut}
+            color={clip.type === 'video' ? '#6B7280' : '#2DD4BF'}
+          />
         ) : (
-          <p className="truncate text-2xs font-medium text-ink-2 pointer-events-none leading-none">
+          <FallbackBars type={clip.type} width={width} />
+        )}
+        {/* Clip name pinned top-left */}
+        {width > 60 && (
+          <span className="absolute left-3 top-1 text-2xs font-medium text-ink-2/80 pointer-events-none leading-none truncate max-w-[calc(100%-24px)]">
             {clip.name}
-          </p>
+          </span>
         )}
       </div>
 
@@ -153,17 +209,18 @@ export function ClipItem({ clip, pxPerSec, isSelected }: ClipItemProps) {
   );
 }
 
-function AudioWaveform({ width }: { width: number }) {
+function FallbackBars({ type, width }: { type: 'video' | 'audio'; width: number }) {
   const bars = Math.max(4, Math.floor((width - 8) / 5));
+  const color = type === 'audio' ? 'bg-teal-400/40' : 'bg-ink-3/30';
   return (
-    <div className="flex h-6 items-center gap-px overflow-hidden w-full">
+    <div className="absolute inset-0 flex items-center gap-px px-3.5">
       {Array.from({ length: bars }).map((_, i) => {
-        const h = 30 + Math.abs(Math.sin(i * 0.9 + 1) * 40 + Math.cos(i * 1.7) * 20);
+        const h = 20 + Math.abs(Math.sin(i * 0.9 + 1) * 30 + Math.cos(i * 1.7) * 15);
         return (
           <div
             key={i}
-            className="w-[2px] shrink-0 rounded-sm bg-ink-3/70"
-            style={{ height: `${Math.min(100, h)}%` }}
+            className={`w-[2px] shrink-0 rounded-sm ${color}`}
+            style={{ height: `${Math.min(80, h)}%` }}
           />
         );
       })}

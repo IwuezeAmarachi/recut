@@ -64,25 +64,25 @@ export function Timeline() {
   // Initial playhead position from Zustand (seek clicks etc.)
   const playheadX = TRACK_HEADER_W + currentTime * pxPerSec;
 
-  // ── Mouse wheel: ctrl+wheel = zoom, plain wheel = horizontal scroll ─────────
+  // ── Pinch / scroll — attach once, use functional zoom update to avoid stale closure
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
 
     const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
       if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const delta = e.deltaY > 0 ? -0.1 : 0.1;
-        setZoom(Math.min(4, Math.max(0.25, zoom + delta)));
+        // Pinch on trackpad (macOS sends ctrlKey=true) or Ctrl+wheel
+        // Use proportional delta so pinch feels smooth
+        const delta = -e.deltaY * 0.01;
+        setZoom((z) => Math.min(8, Math.max(0.1, z + delta)));
       } else {
-        // horizontal scroll without ctrl
-        e.preventDefault();
-        el.scrollLeft += e.deltaY;
+        el.scrollLeft += e.deltaX || e.deltaY;
       }
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [zoom, setZoom]);
+  }, [setZoom]); // no zoom dep — functional update always sees current state
 
   const handleCaptionTrackClick = (_e: React.MouseEvent, x: number) => {
     const time = x / pxPerSec;
@@ -148,7 +148,7 @@ export function Timeline() {
       {clips.length === 0 && captions.length === 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <p className="text-xs text-ink-3">
-            Click a clip in the media panel to add it · Ctrl+scroll to zoom
+            Click a clip in the media panel to add it · Pinch or Ctrl+scroll to zoom
           </p>
         </div>
       )}

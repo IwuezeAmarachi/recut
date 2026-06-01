@@ -24,16 +24,19 @@ export interface Caption {
 
 export interface MediaItem {
   id: string;
-  apiId?: string;       // server-side media ID after upload
+  apiId?: string;         // server-side media ID after upload
   name: string;
   type: 'video' | 'audio';
   file: File;
   url: string;
+  denoisedUrl?: string;     // server URL of ML-denoised version
+  denoising?: boolean;      // denoise job running
+  waveformPeaks?: number[]; // normalised peak amplitude per bucket (0–1)
   duration: number;
   width?: number;
   height?: number;
   thumbnailUrl?: string;
-  uploading?: boolean;  // true while the file is being sent to the server
+  uploading?: boolean;    // true while the file is being sent to the server
 }
 
 export interface Clip {

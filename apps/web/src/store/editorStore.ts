@@ -32,6 +32,7 @@ interface EditorStore {
   setProjectId: (id: string) => void;
   setProjectName: (name: string) => void;
   addMedia: (item: Omit<MediaItem, 'id'>) => MediaItem;
+  updateMedia: (id: string, updates: Partial<Omit<MediaItem, 'id'>>) => void;
   removeMedia: (id: string) => void;
   addClipFromMedia: (mediaId: string) => void;
   updateClip: (id: string, updates: Partial<Clip>) => void;
@@ -49,6 +50,9 @@ interface EditorStore {
   recomputeDuration: () => void;
 
   setMediaApiId: (localId: string, apiId: string) => void;
+  setMediaDenoising: (id: string, denoising: boolean) => void;
+  setMediaDenoisedUrl: (id: string, url: string) => void;
+  setMediaWaveform: (id: string, peaks: number[]) => void;
 
   // Captions
   addCaption: (startTime: number, text?: string) => Caption;
@@ -93,6 +97,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set((s) => ({ mediaItems: [...s.mediaItems, newItem] }));
     return newItem;
   },
+
+  updateMedia: (id, updates) =>
+    set((s) => ({
+      mediaItems: s.mediaItems.map((m) => (m.id === id ? { ...m, ...updates } : m)),
+    })),
 
   removeMedia: (id) =>
     set((s) => ({
@@ -203,6 +212,23 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       mediaItems: s.mediaItems.map((m) =>
         m.id === localId ? { ...m, apiId, uploading: false } : m,
       ),
+    })),
+
+  setMediaDenoising: (id, denoising) =>
+    set((s) => ({
+      mediaItems: s.mediaItems.map((m) => (m.id === id ? { ...m, denoising } : m)),
+    })),
+
+  setMediaDenoisedUrl: (id, url) =>
+    set((s) => ({
+      mediaItems: s.mediaItems.map((m) =>
+        m.id === id ? { ...m, denoisedUrl: url, denoising: false } : m,
+      ),
+    })),
+
+  setMediaWaveform: (id, peaks) =>
+    set((s) => ({
+      mediaItems: s.mediaItems.map((m) => (m.id === id ? { ...m, waveformPeaks: peaks } : m)),
     })),
 
   selectCaption: (id) => set({ selectedCaptionId: id, selectedClipId: null }),

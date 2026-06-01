@@ -13,7 +13,9 @@ export function MediaPanel() {
   const mediaItems = useEditorStore((s) => s.mediaItems);
   const projectId = useEditorStore((s) => s.projectId);
   const addMedia = useEditorStore((s) => s.addMedia);
+  const updateMedia = useEditorStore((s) => s.updateMedia);
   const setMediaApiId = useEditorStore((s) => s.setMediaApiId);
+  const setMediaWaveform = useEditorStore((s) => s.setMediaWaveform);
   const removeMedia = useEditorStore((s) => s.removeMedia);
   const addClipFromMedia = useEditorStore((s) => s.addClipFromMedia);
 
@@ -25,38 +27,36 @@ export function MediaPanel() {
       if (!isVideo && !isAudio) continue;
 
       const url = URL.createObjectURL(file);
-      let duration = 0;
-      let width: number | undefined;
-      let height: number | undefined;
 
-      try {
-        if (isVideo) {
-          const meta = await getVideoDimensions(file);
-          duration = meta.duration;
-          width = meta.width;
-          height = meta.height;
-        } else {
-          duration = await getAudioDuration(file);
-        }
+      // Add immediately so the card appears right away — metadata loads async
+      const item = addMedia({
+        name: file.name,
+        type: isVideo ? 'video' : 'audio',
+        file,
+        url,
+        duration: 0,
+        uploading: true,
+      });
 
-        const item = addMedia({
-          name: file.name,
-          type: isVideo ? 'video' : 'audio',
-          file,
-          url,
-          duration,
-          width,
-          height,
-          uploading: true,
-        });
+      // Resolve metadata without blocking the UI
+      const metaPromise = isVideo
+        ? getVideoDimensions(file).then(({ duration, width, height }) => {
+            updateMedia(item.id, { duration, width, height });
+          })
+        : getAudioDuration(file).then((duration) => {
+            updateMedia(item.id, { duration });
+          });
 
-        // Upload to server in background — don't block UI
-        api.media.upload(projectId, file)
-          .then((apiMedia) => setMediaApiId(item.id, apiMedia.id))
-          .catch(() => { /* upload failed silently; export will warn */ });
-      } catch {
-        URL.revokeObjectURL(url);
-      }
+      metaPromise.catch(() => URL.revokeObjectURL(url));
+
+      // Upload to server, then fetch waveform in background
+      api.media.upload(projectId, file)
+        .then(async (apiMedia) => {
+          setMediaApiId(item.id, apiMedia.id);
+          const wf = await api.media.waveform(projectId, apiMedia.id, 400);
+          setMediaWaveform(item.id, wf.peaks);
+        })
+        .catch(() => { /* upload/waveform failed silently */ });
     }
   };
 

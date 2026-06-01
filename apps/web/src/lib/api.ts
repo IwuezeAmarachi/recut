@@ -78,6 +78,12 @@ export const api = {
         `/projects/${projectId}/media/${mediaId}/transcribe`,
         { method: 'POST' },
       ),
+    denoise: (projectId: string, mediaId: string) =>
+      request<{ url: string }>(`/projects/${projectId}/media/${mediaId}/denoise`, { method: 'POST' }),
+    waveform: (projectId: string, mediaId: string, points = 400) =>
+      request<{ peaks: number[]; duration: number }>(
+        `/projects/${projectId}/media/${mediaId}/waveform?points=${points}`,
+      ),
   },
 
   exports: {

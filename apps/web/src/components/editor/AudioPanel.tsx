@@ -1,16 +1,37 @@
 'use client';
-import { Wand2, Volume2, SlidersHorizontal } from 'lucide-react';
+import { Wand2, Volume2, SlidersHorizontal, Loader2 } from 'lucide-react';
 import { Toggle } from '@/components/ui/Toggle';
 import { Badge } from '@/components/ui/Badge';
 import { useEditorStore } from '@/store/editorStore';
+import { api, BASE } from '@/lib/api';
 
 export function AudioPanel() {
   const noiseReductionEnabled = useEditorStore((s) => s.noiseReductionEnabled);
   const normalizeAudio = useEditorStore((s) => s.normalizeAudio);
   const masterVolume = useEditorStore((s) => s.masterVolume);
+  const mediaItems = useEditorStore((s) => s.mediaItems);
+  const projectId = useEditorStore((s) => s.projectId);
   const setNoiseReduction = useEditorStore((s) => s.setNoiseReduction);
   const setNormalizeAudio = useEditorStore((s) => s.setNormalizeAudio);
   const setMasterVolume = useEditorStore((s) => s.setMasterVolume);
+  const setMediaDenoising = useEditorStore((s) => s.setMediaDenoising);
+  const setMediaDenoisedUrl = useEditorStore((s) => s.setMediaDenoisedUrl);
+
+  const anyDenoising = mediaItems.some((m) => m.denoising);
+
+  const handleNRToggle = async (enabled: boolean) => {
+    setNoiseReduction(enabled);
+    if (!enabled) return;
+
+    // Kick off ML denoising for every uploaded media item not yet processed
+    for (const item of mediaItems) {
+      if (!item.apiId || item.denoisedUrl || item.denoising) continue;
+      setMediaDenoising(item.id, true);
+      api.media.denoise(projectId, item.apiId)
+        .then((res) => setMediaDenoisedUrl(item.id, `${BASE}${res.url}`))
+        .catch(() => setMediaDenoising(item.id, false));
+    }
+  };
 
   return (
     <div className="space-y-2 p-4">
@@ -25,24 +46,26 @@ export function AudioPanel() {
               <div className="flex items-center gap-2">
                 <p className="text-xs font-medium text-ink-1">Noise Reduction</p>
                 {noiseReductionEnabled
-                  ? <span className="flex items-center gap-1 text-2xs text-ink-2"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-2" />Live</span>
+                  ? anyDenoising
+                    ? <span className="flex items-center gap-1 text-2xs text-amber-400"><Loader2 size={10} className="animate-spin" />Processing…</span>
+                    : <span className="flex items-center gap-1 text-2xs text-green-400"><span className="h-1.5 w-1.5 rounded-full bg-green-400" />Active</span>
                   : <Badge variant="outline">Off</Badge>}
               </div>
               <p className="mt-0.5 text-2xs text-ink-3 leading-relaxed">
-                Removes hum, rumble, and power-line noise in real time.
-                Broadband noise (AC, room) is removed at export via RNNoise.
+                Filters hum and rumble while you preview. Background noise
+                (fan, AC, room) is removed more deeply at export.
               </p>
             </div>
           </div>
-          <Toggle checked={noiseReductionEnabled} onChange={setNoiseReduction} />
+          <Toggle checked={noiseReductionEnabled} onChange={handleNRToggle} />
         </div>
 
         {noiseReductionEnabled && (
           <div className="mt-3 space-y-1">
-            <Pill label="High-pass 100 Hz" desc="Removes rumble" />
-            <Pill label="Notch 50/60 Hz + harmonics" desc="Removes power-line hum" />
-            <Pill label="Low-shelf −8 dB" desc="Reduces low-end mud" />
-            <Pill label="Compressor" desc="Suppresses residual noise" />
+            <Pill label="Rumble cut" desc="Removes handling & HVAC sub-bass" />
+            <Pill label="Hum removal" desc="50/60 Hz power-line & harmonics" />
+            <Pill label="Low-end tame" desc="Reduces muddiness below 200 Hz" />
+            <Pill label="Sibilance tame" desc="Softens harsh high-end air" />
           </div>
         )}
       </div>
@@ -89,8 +112,8 @@ export function AudioPanel() {
       {/* Info note about broadband NR */}
       <div className="rounded-lg border border-dashed border-edge p-3 text-center">
         <p className="text-2xs text-ink-3 leading-relaxed">
-          Deep noise removal (fan, AC, room ambience) requires RNNoise processing.
-          Enable Noise Reduction and it will run automatically at export.
+          Preview uses real-time filters. A deeper AI pass runs automatically
+          at export for fan, AC, and room noise.
         </p>
       </div>
     </div>
