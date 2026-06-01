@@ -1,5 +1,13 @@
 import { create } from 'zustand';
-import { type Clip, type MediaItem, type Tool, type ExportSettings, clipEffectiveDuration } from '@/types/editor';
+import {
+  type Clip,
+  type MediaItem,
+  type Tool,
+  type ExportSettings,
+  type Caption,
+  clipEffectiveDuration,
+  DEFAULT_CAPTION_STYLE,
+} from '@/types/editor';
 import { generateId } from '@/lib/utils';
 
 interface EditorStore {
@@ -7,15 +15,18 @@ interface EditorStore {
   projectName: string;
   mediaItems: MediaItem[];
   clips: Clip[];
+  captions: Caption[];
   isPlaying: boolean;
   currentTime: number;
   duration: number;
   zoom: number;
   activeTool: Tool;
   selectedClipId: string | null;
+  selectedCaptionId: string | null;
   noiseReductionEnabled: boolean;
   masterVolume: number;
   exportSettings: ExportSettings;
+  captionsGenerating: boolean;
 
   setProjectId: (id: string) => void;
   setProjectName: (name: string) => void;
@@ -34,6 +45,14 @@ interface EditorStore {
   setMasterVolume: (vol: number) => void;
   updateExportSettings: (settings: Partial<ExportSettings>) => void;
   recomputeDuration: () => void;
+
+  // Captions
+  addCaption: (startTime: number, text?: string) => Caption;
+  updateCaption: (id: string, updates: Partial<Omit<Caption, 'id'>>) => void;
+  removeCaption: (id: string) => void;
+  selectCaption: (id: string | null) => void;
+  setCaptionsGenerating: (v: boolean) => void;
+
   reset: () => void;
 }
 
@@ -48,18 +67,20 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   projectName: 'Untitled Project',
   mediaItems: [],
   clips: [],
+  captions: [],
   isPlaying: false,
   currentTime: 0,
   duration: 0,
   zoom: 1,
   activeTool: 'select',
   selectedClipId: null,
+  selectedCaptionId: null,
   noiseReductionEnabled: false,
   masterVolume: 1,
   exportSettings: DEFAULT_EXPORT,
+  captionsGenerating: false,
 
   setProjectId: (id) => set({ projectId: id }),
-
   setProjectName: (name) => set({ projectName: name }),
 
   addMedia: (item) => {
@@ -101,23 +122,19 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     };
 
     const newDuration = Math.max(state.duration, startTime + media.duration);
-
-    set((s) => ({
-      clips: [...s.clips, newClip],
-      duration: newDuration,
-      selectedClipId: newClip.id,
-    }));
+    set((s) => ({ clips: [...s.clips, newClip], duration: newDuration, selectedClipId: newClip.id }));
   },
 
   updateClip: (id, updates) =>
-    set((s) => ({
-      clips: s.clips.map((c) => (c.id === id ? { ...c, ...updates } : c)),
-    })),
+    set((s) => ({ clips: s.clips.map((c) => (c.id === id ? { ...c, ...updates } : c)) })),
 
   removeClip: (id) =>
     set((s) => {
       const clips = s.clips.filter((c) => c.id !== id);
-      const duration = clips.reduce((max, c) => Math.max(max, c.startTime + clipEffectiveDuration(c)), 0);
+      const duration = clips.reduce(
+        (max, c) => Math.max(max, c.startTime + clipEffectiveDuration(c)),
+        0,
+      );
       return { clips, duration, selectedClipId: s.selectedClipId === id ? null : s.selectedClipId };
     }),
 
@@ -125,52 +142,58 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const state = get();
     const clip = state.clips.find((c) => c.id === clipId);
     if (!clip) return;
-
     const relativeTime = time - clip.startTime;
     const effectiveDur = clipEffectiveDuration(clip);
-    if (relativeTime <= 0 || relativeTime >= effectiveDur) return;
-
+    if (relativeTime <= 0.05 || relativeTime >= effectiveDur - 0.05) return;
     const sourceRelative = clip.trimIn + relativeTime * clip.speed;
-
-    const firstHalf: Clip = {
-      ...clip,
-      id: generateId(),
-      trimOut: clip.duration - sourceRelative,
-    };
-    const secondHalf: Clip = {
-      ...clip,
-      id: generateId(),
-      startTime: time,
-      trimIn: sourceRelative,
-    };
-
+    const firstHalf: Clip = { ...clip, id: generateId(), trimOut: clip.duration - sourceRelative };
+    const secondHalf: Clip = { ...clip, id: generateId(), startTime: time, trimIn: sourceRelative };
     set((s) => ({
       clips: s.clips.filter((c) => c.id !== clipId).concat([firstHalf, secondHalf]),
-      selectedClipId: secondHalf.id,
+      selectedClipId: firstHalf.id,
     }));
   },
 
-  selectClip: (id) => set({ selectedClipId: id }),
-
+  selectClip: (id) => set({ selectedClipId: id, selectedCaptionId: null }),
   setCurrentTime: (time) => set({ currentTime: time }),
-
   setPlaying: (playing) => set({ isPlaying: playing }),
-
   setZoom: (zoom) => set({ zoom }),
-
   setActiveTool: (tool) => set({ activeTool: tool }),
-
   setNoiseReduction: (enabled) => set({ noiseReductionEnabled: enabled }),
-
   setMasterVolume: (vol) => set({ masterVolume: vol }),
-
   updateExportSettings: (settings) =>
     set((s) => ({ exportSettings: { ...s.exportSettings, ...settings } })),
-
   recomputeDuration: () =>
     set((s) => ({
       duration: s.clips.reduce((max, c) => Math.max(max, c.startTime + clipEffectiveDuration(c)), 0),
     })),
+
+  // Captions
+  addCaption: (startTime, text = 'New caption') => {
+    const caption: Caption = {
+      id: generateId(),
+      text,
+      startTime,
+      duration: 3,
+      style: { ...DEFAULT_CAPTION_STYLE },
+    };
+    set((s) => ({ captions: [...s.captions, caption], selectedCaptionId: caption.id }));
+    return caption;
+  },
+
+  updateCaption: (id, updates) =>
+    set((s) => ({
+      captions: s.captions.map((c) => (c.id === id ? { ...c, ...updates } : c)),
+    })),
+
+  removeCaption: (id) =>
+    set((s) => ({
+      captions: s.captions.filter((c) => c.id !== id),
+      selectedCaptionId: s.selectedCaptionId === id ? null : s.selectedCaptionId,
+    })),
+
+  selectCaption: (id) => set({ selectedCaptionId: id, selectedClipId: null }),
+  setCaptionsGenerating: (v) => set({ captionsGenerating: v }),
 
   reset: () =>
     set({
@@ -178,14 +201,17 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       projectName: 'Untitled Project',
       mediaItems: [],
       clips: [],
+      captions: [],
       isPlaying: false,
       currentTime: 0,
       duration: 0,
       zoom: 1,
       activeTool: 'select',
       selectedClipId: null,
+      selectedCaptionId: null,
       noiseReductionEnabled: false,
       masterVolume: 1,
       exportSettings: DEFAULT_EXPORT,
+      captionsGenerating: false,
     }),
 }));

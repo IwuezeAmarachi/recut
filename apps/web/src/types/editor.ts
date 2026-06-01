@@ -1,7 +1,26 @@
-export type Tool = 'select' | 'cut' | 'split' | 'trim';
+export type Tool = 'select' | 'cut' | 'split' | 'trim' | 'caption';
 
 export type Resolution = '720p' | '1080p' | '2k';
 export type Codec = 'h264' | 'h265';
+
+export type CaptionPosition = 'bottom' | 'middle' | 'top';
+
+export interface CaptionStyle {
+  fontSize: number;
+  bold: boolean;
+  italic: boolean;
+  position: CaptionPosition;
+  background: boolean;
+  backgroundOpacity: number;
+}
+
+export interface Caption {
+  id: string;
+  text: string;
+  startTime: number;
+  duration: number;
+  style: CaptionStyle;
+}
 
 export interface MediaItem {
   id: string;
@@ -45,3 +64,12 @@ export interface Project {
 export function clipEffectiveDuration(clip: Clip): number {
   return (clip.duration - clip.trimIn - clip.trimOut) / clip.speed;
 }
+
+export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
+  fontSize: 22,
+  bold: false,
+  italic: false,
+  position: 'bottom',
+  background: true,
+  backgroundOpacity: 0.65,
+};
