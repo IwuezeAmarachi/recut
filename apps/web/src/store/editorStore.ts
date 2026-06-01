@@ -24,6 +24,7 @@ interface EditorStore {
   selectedClipId: string | null;
   selectedCaptionId: string | null;
   noiseReductionEnabled: boolean;
+  normalizeAudio: boolean;
   masterVolume: number;
   exportSettings: ExportSettings;
   captionsGenerating: boolean;
@@ -42,6 +43,7 @@ interface EditorStore {
   setZoom: (zoom: number) => void;
   setActiveTool: (tool: Tool) => void;
   setNoiseReduction: (enabled: boolean) => void;
+  setNormalizeAudio: (enabled: boolean) => void;
   setMasterVolume: (vol: number) => void;
   updateExportSettings: (settings: Partial<ExportSettings>) => void;
   recomputeDuration: () => void;
@@ -76,6 +78,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   selectedClipId: null,
   selectedCaptionId: null,
   noiseReductionEnabled: false,
+  normalizeAudio: false,
   masterVolume: 1,
   exportSettings: DEFAULT_EXPORT,
   captionsGenerating: false,
@@ -160,6 +163,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   setZoom: (zoom) => set({ zoom }),
   setActiveTool: (tool) => set({ activeTool: tool }),
   setNoiseReduction: (enabled) => set({ noiseReductionEnabled: enabled }),
+  setNormalizeAudio: (enabled) => set({ normalizeAudio: enabled }),
   setMasterVolume: (vol) => set({ masterVolume: vol }),
   updateExportSettings: (settings) =>
     set((s) => ({ exportSettings: { ...s.exportSettings, ...settings } })),
@@ -210,6 +214,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       selectedClipId: null,
       selectedCaptionId: null,
       noiseReductionEnabled: false,
+      normalizeAudio: false,
       masterVolume: 1,
       exportSettings: DEFAULT_EXPORT,
       captionsGenerating: false,

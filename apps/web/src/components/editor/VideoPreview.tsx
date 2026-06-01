@@ -1,5 +1,5 @@
 'use client';
-import { useRef, useEffect, useCallback, useState } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward } from 'lucide-react';
 import { cn, formatDurationMs } from '@/lib/utils';
 import { useEditorStore } from '@/store/editorStore';
@@ -7,77 +7,120 @@ import { clipEffectiveDuration } from '@/types/editor';
 import { emitTime } from '@/lib/timeChannel';
 import type { Caption } from '@/types/editor';
 
-// ── Audio processing chain for real-time noise reduction ──────────────────────
+// ── Audio processor — lazy init on first play (requires user gesture) ──────────
 class AudioProcessor {
   private ctx: AudioContext | null = null;
   private source: MediaElementAudioSourceNode | null = null;
+  private nrEnabled = false;
+  private normalizeEnabled = false;
 
-  connect(video: HTMLVideoElement): void {
-    if (!this.ctx) this.ctx = new AudioContext();
-    if (this.ctx.state === 'suspended') this.ctx.resume();
-    if (!this.source) {
-      try { this.source = this.ctx.createMediaElementSource(video); }
-      catch { return; }
+  /** Must be called inside a user-gesture handler (e.g. play click). */
+  init(video: HTMLVideoElement): void {
+    if (this.ctx) {
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      return;
     }
-    try { this.source.disconnect(); } catch { /* ok */ }
-    this.source.connect(this.ctx.destination);
+    try {
+      this.ctx = new AudioContext();
+      this.source = this.ctx.createMediaElementSource(video);
+      this.rebuild();
+    } catch {
+      // AudioContext unavailable — video still plays, just without NR
+      this.ctx = null;
+      this.source = null;
+    }
   }
 
-  enableNR(enabled: boolean): void {
+  setNR(enabled: boolean): void {
+    this.nrEnabled = enabled;
+    this.rebuild();
+  }
+
+  setNormalize(enabled: boolean): void {
+    this.normalizeEnabled = enabled;
+    this.rebuild();
+  }
+
+  private rebuild(): void {
     if (!this.ctx || !this.source) return;
     try { this.source.disconnect(); } catch { /* ok */ }
 
-    if (!enabled) {
-      this.source.connect(this.ctx.destination);
-      return;
+    let last: AudioNode = this.source;
+
+    if (this.nrEnabled) {
+      // High-pass: remove rumble below 100 Hz
+      const hp = this.ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 100;
+      hp.Q.value = 1.2;
+
+      // Low-shelf: cut low-end mud by 8 dB
+      const ls = this.ctx.createBiquadFilter();
+      ls.type = 'lowshelf';
+      ls.frequency.value = 250;
+      ls.gain.value = -8;
+
+      // Notch 50 Hz + 2nd harmonic 100 Hz (EU power line hum)
+      const n50 = this.ctx.createBiquadFilter();
+      n50.type = 'notch';
+      n50.frequency.value = 50;
+      n50.Q.value = 25;
+
+      const n100 = this.ctx.createBiquadFilter();
+      n100.type = 'notch';
+      n100.frequency.value = 100;
+      n100.Q.value = 25;
+
+      // Notch 60 Hz + 120 Hz (US power line hum)
+      const n60 = this.ctx.createBiquadFilter();
+      n60.type = 'notch';
+      n60.frequency.value = 60;
+      n60.Q.value = 25;
+
+      const n120 = this.ctx.createBiquadFilter();
+      n120.type = 'notch';
+      n120.frequency.value = 120;
+      n120.Q.value = 25;
+
+      // High-shelf: tame harsh 4–8 kHz range by 4 dB
+      const hs = this.ctx.createBiquadFilter();
+      hs.type = 'highshelf';
+      hs.frequency.value = 5000;
+      hs.gain.value = -4;
+
+      last.connect(hp);
+      hp.connect(ls);
+      ls.connect(n50);
+      n50.connect(n100);
+      n100.connect(n60);
+      n60.connect(n120);
+      n120.connect(hs);
+      last = hs;
     }
 
-    // High-pass: remove rumble below 80 Hz
-    const hp = this.ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 80;
-    hp.Q.value = 0.7;
+    if (this.nrEnabled || this.normalizeEnabled) {
+      // Compressor: acts as leveller for normalize, or as a noise suppressor
+      const comp = this.ctx.createDynamicsCompressor();
+      comp.threshold.value = this.normalizeEnabled ? -18 : -30;
+      comp.knee.value = this.normalizeEnabled ? 25 : 10;
+      comp.ratio.value = this.normalizeEnabled ? 6 : 16;
+      comp.attack.value = 0.003;
+      comp.release.value = 0.2;
+      last.connect(comp);
+      last = comp;
+    }
 
-    // Notch 50 Hz + 60 Hz: remove power-line hum
-    const n50 = this.ctx.createBiquadFilter();
-    n50.type = 'notch';
-    n50.frequency.value = 50;
-    n50.Q.value = 15;
-
-    const n60 = this.ctx.createBiquadFilter();
-    n60.type = 'notch';
-    n60.frequency.value = 60;
-    n60.Q.value = 15;
-
-    // Peaking: gently de-emphasise harsh 3–5 kHz range
-    const peak = this.ctx.createBiquadFilter();
-    peak.type = 'peaking';
-    peak.frequency.value = 4000;
-    peak.Q.value = 0.8;
-    peak.gain.value = -5;
-
-    // Dynamics compressor: even out volume
-    const comp = this.ctx.createDynamicsCompressor();
-    comp.threshold.value = -28;
-    comp.knee.value = 35;
-    comp.ratio.value = 10;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.15;
-
-    this.source.connect(hp);
-    hp.connect(n50);
-    n50.connect(n60);
-    n60.connect(peak);
-    peak.connect(comp);
-    comp.connect(this.ctx.destination);
+    last.connect(this.ctx.destination);
+    if (this.ctx.state === 'suspended') this.ctx.resume();
   }
 
   destroy(): void {
     try { this.source?.disconnect(); } catch { /* ok */ }
-    this.ctx?.close();
+    this.ctx?.close().catch(() => { /* ok */ });
   }
 }
 
+// ── Component ─────────────────────────────────────────────────────────────────
 export function VideoPreview() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const timecodeRef = useRef<HTMLSpanElement>(null);
@@ -85,10 +128,10 @@ export function VideoPreview() {
   const scrubberRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number>(0);
   const lastZustandUpdate = useRef<number>(0);
-  const audioProc = useRef<AudioProcessor>(new AudioProcessor());
+  const audioInitRef = useRef(false);
+  const audioProc = useRef(new AudioProcessor());
 
-  const [audioReady, setAudioReady] = useState(false);
-
+  // ── Store subscriptions ────────────────────────────────────────────────────
   const mediaItems = useEditorStore((s) => s.mediaItems);
   const clips = useEditorStore((s) => s.clips);
   const captions = useEditorStore((s) => s.captions);
@@ -97,86 +140,95 @@ export function VideoPreview() {
   const duration = useEditorStore((s) => s.duration);
   const masterVolume = useEditorStore((s) => s.masterVolume);
   const noiseReductionEnabled = useEditorStore((s) => s.noiseReductionEnabled);
+  const normalizeAudio = useEditorStore((s) => s.normalizeAudio);
   const setPlaying = useEditorStore((s) => s.setPlaying);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
   const setMasterVolume = useEditorStore((s) => s.setMasterVolume);
 
+  // ── Derived values ─────────────────────────────────────────────────────────
   const activeClip = clips
     .filter((c) => c.type === 'video')
-    .find((c) => c.startTime <= currentTime && c.startTime + clipEffectiveDuration(c) > currentTime);
+    .find((c) => c.startTime <= currentTime && c.startTime + clipEffectiveDuration(c) > currentTime)
+    // Fallback to first video clip when at time 0 (edge case)
+    ?? clips.find((c) => c.type === 'video');
 
   const activeMedia = activeClip ? mediaItems.find((m) => m.id === activeClip.mediaId) : null;
 
-  // Current caption
   const activeCaption = captions.find(
     (c) => c.startTime <= currentTime && c.startTime + c.duration > currentTime,
   );
 
-  // Sync video src
+  // ── Keep refs current so the RAF loop is always up-to-date ────────────────
+  const activeClipRef = useRef(activeClip);
+  activeClipRef.current = activeClip;
+  const durationRef = useRef(duration);
+  durationRef.current = duration;
+
+  // ── Sync video src ─────────────────────────────────────────────────────────
+  const srcRef = useRef('');
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     const newSrc = activeMedia?.url ?? '';
-    if (video.getAttribute('data-src') !== newSrc) {
-      video.setAttribute('data-src', newSrc);
-      video.src = newSrc;
-      video.load();
-      if (newSrc) {
-        audioProc.current.connect(video);
-        setAudioReady(true);
-      }
-    }
+    if (srcRef.current === newSrc) return;
+    srcRef.current = newSrc;
+    video.src = newSrc;
+    if (newSrc) video.load();
   }, [activeMedia?.url]);
 
-  // Volume
+  // ── Volume ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (videoRef.current) videoRef.current.volume = masterVolume;
   }, [masterVolume]);
 
-  // Noise reduction toggle
-  useEffect(() => {
-    if (audioReady) audioProc.current.enableNR(noiseReductionEnabled);
-  }, [noiseReductionEnabled, audioReady]);
+  // ── NR / normalize (only affects AudioContext if already initialised) ──────
+  useEffect(() => { audioProc.current.setNR(noiseReductionEnabled); }, [noiseReductionEnabled]);
+  useEffect(() => { audioProc.current.setNormalize(normalizeAudio); }, [normalizeAudio]);
 
-  // Cleanup on unmount
+  // Cleanup
   useEffect(() => {
     const proc = audioProc.current;
     return () => proc.destroy();
   }, []);
 
-  // Seek when currentTime changes externally (scrubber click, not RAF)
+  // ── Seek when paused ───────────────────────────────────────────────────────
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !activeClip || isPlaying) return;
-    const targetSource = activeClip.trimIn + (currentTime - activeClip.startTime) * activeClip.speed;
-    if (Math.abs(video.currentTime - targetSource) > 0.2) {
-      video.currentTime = targetSource;
-    }
-  }, [currentTime, activeClip, isPlaying]);
+    if (!video || isPlaying) return;
+    const clip = activeClipRef.current;
+    if (!clip) return;
+    const target = clip.trimIn + (currentTime - clip.startTime) * clip.speed;
+    if (Math.abs(video.currentTime - target) > 0.2) video.currentTime = target;
+  }, [currentTime, isPlaying]);
 
-  // Play / pause — smooth RAF loop with direct DOM updates
+  // ── Play / pause — RAF loop only re-runs when isPlaying changes ────────────
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     if (isPlaying) {
+      // Lazy AudioContext init — must be inside user gesture response
+      if (!audioInitRef.current && video.src) {
+        audioProc.current.init(video);
+        audioInitRef.current = true;
+      }
+
       video.play().catch(() => setPlaying(false));
 
       const tick = () => {
-        if (!video.paused && activeClip) {
-          const sourceTime = video.currentTime;
-          const t = activeClip.startTime + (sourceTime - activeClip.trimIn) / activeClip.speed;
+        const clip = activeClipRef.current;
+        if (!video.paused && clip) {
+          const t = clip.startTime + (video.currentTime - clip.trimIn) / clip.speed;
 
-          // Direct DOM: timecode and progress bar — zero React overhead
+          // Direct DOM — no React re-render
           if (timecodeRef.current) timecodeRef.current.textContent = formatDurationMs(t);
-          const pct = duration > 0 ? (t / duration) * 100 : 0;
+          const d = durationRef.current;
+          const pct = d > 0 ? (t / d) * 100 : 0;
           if (progressFillRef.current) progressFillRef.current.style.width = `${pct}%`;
           if (scrubberRef.current) scrubberRef.current.style.left = `${pct}%`;
-
-          // Broadcast to timeline playhead — also direct DOM, no React
           emitTime(t);
 
-          // Update Zustand at ~10 fps so other UI stays in sync
+          // Throttled Zustand sync (~10 fps)
           const now = performance.now();
           if (now - lastZustandUpdate.current > 100) {
             setCurrentTime(t);
@@ -192,7 +244,7 @@ export function VideoPreview() {
     }
 
     return () => cancelAnimationFrame(rafRef.current);
-  }, [isPlaying, activeClip, duration, setPlaying, setCurrentTime]);
+  }, [isPlaying]); // ← ONLY isPlaying. Refs handle everything else.
 
   const togglePlay = useCallback(() => setPlaying(!isPlaying), [isPlaying, setPlaying]);
 
@@ -203,13 +255,18 @@ export function VideoPreview() {
     emitTime(t);
   };
 
-  const skipBackward = () => { setCurrentTime(Math.max(0, currentTime - 5)); emitTime(Math.max(0, currentTime - 5)); };
-  const skipForward = () => { setCurrentTime(Math.min(duration, currentTime + 5)); emitTime(Math.min(duration, currentTime + 5)); };
+  const skipBackward = () => {
+    const t = Math.max(0, currentTime - 5);
+    setCurrentTime(t); emitTime(t);
+  };
+  const skipForward = () => {
+    const t = Math.min(duration, currentTime + 5);
+    setCurrentTime(t); emitTime(t);
+  };
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const hasMedia = mediaItems.length > 0;
   const muted = masterVolume === 0;
-  const toggleMute = () => setMasterVolume(muted ? 0.8 : 0);
 
   return (
     <div className="flex flex-1 flex-col bg-bg">
@@ -234,8 +291,8 @@ export function VideoPreview() {
             {activeCaption && (
               <div
                 className={cn(
-                  'pointer-events-none absolute left-4 right-4 flex justify-center',
-                  activeCaption.style.position === 'bottom' && 'bottom-10',
+                  'pointer-events-none absolute left-6 right-6 flex justify-center',
+                  activeCaption.style.position === 'bottom' && 'bottom-12',
                   activeCaption.style.position === 'middle' && 'top-1/2 -translate-y-1/2',
                   activeCaption.style.position === 'top' && 'top-10',
                 )}
@@ -244,11 +301,11 @@ export function VideoPreview() {
               </div>
             )}
 
-            {/* Noise reduction badge */}
+            {/* NR indicator */}
             {noiseReductionEnabled && (
-              <div className="absolute right-3 top-3 flex items-center gap-1.5 rounded-md bg-surface-3/80 px-2 py-1 text-2xs text-ink-2 backdrop-blur-sm">
+              <div className="absolute right-3 top-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-2xs text-ink-2 backdrop-blur-sm">
                 <span className="h-1.5 w-1.5 rounded-full bg-ink-2 animate-pulse" />
-                Noise reduction on
+                Noise filter on
               </div>
             )}
           </>
@@ -256,7 +313,7 @@ export function VideoPreview() {
           <EmptyPreview />
         )}
 
-        {/* Click overlay to play/pause */}
+        {/* Click-to-play overlay */}
         {hasMedia && (
           <button
             onClick={togglePlay}
@@ -272,25 +329,22 @@ export function VideoPreview() {
         )}
       </div>
 
-      {/* Transport controls */}
+      {/* Transport */}
       <div className="shrink-0 border-t border-edge bg-surface-1 px-4 py-3">
         {/* Scrubber */}
         <div
           className="relative mb-3 h-1.5 cursor-pointer rounded-full bg-surface-3 group"
           onClick={handleProgressClick}
         >
-          {/* Buffered look */}
           <div className="absolute inset-0 rounded-full bg-surface-4" />
-          {/* Played fill — updated via ref, not React */}
           <div
             ref={progressFillRef}
             className="absolute left-0 top-0 h-full rounded-full bg-ink-2 transition-none"
             style={{ width: `${progress}%` }}
           />
-          {/* Scrubber head */}
           <div
             ref={scrubberRef}
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3.5 w-3.5 rounded-full bg-ink-1 shadow opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-ink-1 shadow opacity-0 group-hover:opacity-100 transition-opacity"
             style={{ left: `${progress}%` }}
           />
         </div>
@@ -299,7 +353,6 @@ export function VideoPreview() {
           <button onClick={skipBackward} disabled={!hasMedia} className="text-ink-3 hover:text-ink-1 transition-colors disabled:opacity-30">
             <SkipBack size={16} strokeWidth={1.75} />
           </button>
-
           <button
             onClick={togglePlay}
             disabled={!hasMedia}
@@ -310,18 +363,16 @@ export function VideoPreview() {
           >
             {isPlaying ? <Pause size={14} /> : <Play size={14} className="translate-x-0.5" />}
           </button>
-
           <button onClick={skipForward} disabled={!hasMedia} className="text-ink-3 hover:text-ink-1 transition-colors disabled:opacity-30">
             <SkipForward size={16} strokeWidth={1.75} />
           </button>
 
-          {/* Timecode — updated via ref during playback */}
           <span ref={timecodeRef} className="ml-1 font-mono text-xs text-ink-2 tabular-nums">
             {formatDurationMs(currentTime)} / {formatDurationMs(duration)}
           </span>
 
           <div className="ml-auto flex items-center gap-2">
-            <button onClick={toggleMute} className="text-ink-3 hover:text-ink-1 transition-colors">
+            <button onClick={() => setMasterVolume(muted ? 0.8 : 0)} className="text-ink-3 hover:text-ink-1 transition-colors">
               {muted ? <VolumeX size={15} strokeWidth={1.75} /> : <Volume2 size={15} strokeWidth={1.75} />}
             </button>
             <input
@@ -340,15 +391,8 @@ function CaptionOverlay({ caption }: { caption: Caption }) {
   const { style, text } = caption;
   return (
     <span
-      className={cn(
-        'max-w-xl rounded-md px-4 py-1.5 text-center leading-snug text-white',
-        style.bold && 'font-bold',
-        style.italic && 'italic',
-      )}
-      style={{
-        fontSize: style.fontSize,
-        background: style.background ? `rgba(0,0,0,${style.backgroundOpacity})` : 'transparent',
-      }}
+      className={cn('max-w-2xl rounded-md px-5 py-2 text-center leading-snug text-white', style.bold && 'font-bold', style.italic && 'italic')}
+      style={{ fontSize: style.fontSize, background: style.background ? `rgba(0,0,0,${style.backgroundOpacity})` : 'transparent' }}
     >
       {text}
     </span>
@@ -358,8 +402,8 @@ function CaptionOverlay({ caption }: { caption: Caption }) {
 function EmptyPreview() {
   return (
     <div className="flex flex-col items-center gap-3 text-center">
-      <div className="h-16 w-16 rounded-xl border border-edge bg-surface-1 flex items-center justify-center">
-        <Play size={24} className="text-ink-3 translate-x-0.5" strokeWidth={1.5} />
+      <div className="flex h-16 w-16 items-center justify-center rounded-xl border border-edge bg-surface-1">
+        <Play size={24} className="translate-x-0.5 text-ink-3" strokeWidth={1.5} />
       </div>
       <p className="text-sm text-ink-3">No media loaded</p>
       <p className="text-xs text-ink-3 opacity-60">Import a video from the media panel</p>
