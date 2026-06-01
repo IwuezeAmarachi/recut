@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-inter: 'Inter', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  background: #111111;
+  color: #ebebeb;
+  font-family: var(--font-inter);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #333333;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #444444;
+}
+
+/* Text selection */
+::selection {
+  background: #383838;
+  color: #ebebeb;
+}
+
+/* Remove default video controls */
+video::-webkit-media-controls {
+  display: none !important;
+}
+
+/* Clip drag transition */
+.clip-item {
+  transition: box-shadow 0.1s ease;
+}
+
+.clip-item:hover {
+  box-shadow: 0 0 0 1px #3e3e3e;
+}
+
+.clip-item.selected {
+  box-shadow: 0 0 0 1.5px #ebebeb;
+}
+
+/* Timeline playhead */
+.playhead-line {
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* Panel resize handle */
+.resize-handle {
+  cursor: col-resize;
+  user-select: none;
+}

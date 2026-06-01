@@ -1,0 +1,11 @@
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+python-multipart==0.0.9
+pydantic==2.7.4
+pydantic-settings==2.3.3
+redis[asyncio]==5.0.6
+rq==1.16.2
+aiofiles==23.2.1
+boto3==1.34.138
+httpx==0.27.0
+python-jose[cryptography]==3.3.0

@@ -1,0 +1,191 @@
+import { create } from 'zustand';
+import { type Clip, type MediaItem, type Tool, type ExportSettings, clipEffectiveDuration } from '@/types/editor';
+import { generateId } from '@/lib/utils';
+
+interface EditorStore {
+  projectId: string;
+  projectName: string;
+  mediaItems: MediaItem[];
+  clips: Clip[];
+  isPlaying: boolean;
+  currentTime: number;
+  duration: number;
+  zoom: number;
+  activeTool: Tool;
+  selectedClipId: string | null;
+  noiseReductionEnabled: boolean;
+  masterVolume: number;
+  exportSettings: ExportSettings;
+
+  setProjectId: (id: string) => void;
+  setProjectName: (name: string) => void;
+  addMedia: (item: Omit<MediaItem, 'id'>) => MediaItem;
+  removeMedia: (id: string) => void;
+  addClipFromMedia: (mediaId: string) => void;
+  updateClip: (id: string, updates: Partial<Clip>) => void;
+  removeClip: (id: string) => void;
+  splitClipAtTime: (clipId: string, time: number) => void;
+  selectClip: (id: string | null) => void;
+  setCurrentTime: (time: number) => void;
+  setPlaying: (playing: boolean) => void;
+  setZoom: (zoom: number) => void;
+  setActiveTool: (tool: Tool) => void;
+  setNoiseReduction: (enabled: boolean) => void;
+  setMasterVolume: (vol: number) => void;
+  updateExportSettings: (settings: Partial<ExportSettings>) => void;
+  recomputeDuration: () => void;
+  reset: () => void;
+}
+
+const DEFAULT_EXPORT: ExportSettings = {
+  resolution: '1080p',
+  codec: 'h264',
+  bitrate: 8000,
+};
+
+export const useEditorStore = create<EditorStore>((set, get) => ({
+  projectId: generateId(),
+  projectName: 'Untitled Project',
+  mediaItems: [],
+  clips: [],
+  isPlaying: false,
+  currentTime: 0,
+  duration: 0,
+  zoom: 1,
+  activeTool: 'select',
+  selectedClipId: null,
+  noiseReductionEnabled: false,
+  masterVolume: 1,
+  exportSettings: DEFAULT_EXPORT,
+
+  setProjectId: (id) => set({ projectId: id }),
+
+  setProjectName: (name) => set({ projectName: name }),
+
+  addMedia: (item) => {
+    const newItem: MediaItem = { ...item, id: generateId() };
+    set((s) => ({ mediaItems: [...s.mediaItems, newItem] }));
+    return newItem;
+  },
+
+  removeMedia: (id) =>
+    set((s) => ({
+      mediaItems: s.mediaItems.filter((m) => m.id !== id),
+      clips: s.clips.filter((c) => c.mediaId !== id),
+    })),
+
+  addClipFromMedia: (mediaId) => {
+    const state = get();
+    const media = state.mediaItems.find((m) => m.id === mediaId);
+    if (!media) return;
+
+    const trackIndex = media.type === 'video' ? 0 : 1;
+    const sameTrackClips = state.clips.filter((c) => c.trackIndex === trackIndex);
+    const startTime = sameTrackClips.reduce((max, c) => {
+      const end = c.startTime + clipEffectiveDuration(c);
+      return Math.max(max, end);
+    }, 0);
+
+    const newClip: Clip = {
+      id: generateId(),
+      mediaId,
+      type: media.type,
+      name: media.name,
+      startTime,
+      duration: media.duration,
+      trimIn: 0,
+      trimOut: 0,
+      speed: 1,
+      trackIndex,
+      volume: 1,
+    };
+
+    const newDuration = Math.max(state.duration, startTime + media.duration);
+
+    set((s) => ({
+      clips: [...s.clips, newClip],
+      duration: newDuration,
+      selectedClipId: newClip.id,
+    }));
+  },
+
+  updateClip: (id, updates) =>
+    set((s) => ({
+      clips: s.clips.map((c) => (c.id === id ? { ...c, ...updates } : c)),
+    })),
+
+  removeClip: (id) =>
+    set((s) => {
+      const clips = s.clips.filter((c) => c.id !== id);
+      const duration = clips.reduce((max, c) => Math.max(max, c.startTime + clipEffectiveDuration(c)), 0);
+      return { clips, duration, selectedClipId: s.selectedClipId === id ? null : s.selectedClipId };
+    }),
+
+  splitClipAtTime: (clipId, time) => {
+    const state = get();
+    const clip = state.clips.find((c) => c.id === clipId);
+    if (!clip) return;
+
+    const relativeTime = time - clip.startTime;
+    const effectiveDur = clipEffectiveDuration(clip);
+    if (relativeTime <= 0 || relativeTime >= effectiveDur) return;
+
+    const sourceRelative = clip.trimIn + relativeTime * clip.speed;
+
+    const firstHalf: Clip = {
+      ...clip,
+      id: generateId(),
+      trimOut: clip.duration - sourceRelative,
+    };
+    const secondHalf: Clip = {
+      ...clip,
+      id: generateId(),
+      startTime: time,
+      trimIn: sourceRelative,
+    };
+
+    set((s) => ({
+      clips: s.clips.filter((c) => c.id !== clipId).concat([firstHalf, secondHalf]),
+      selectedClipId: secondHalf.id,
+    }));
+  },
+
+  selectClip: (id) => set({ selectedClipId: id }),
+
+  setCurrentTime: (time) => set({ currentTime: time }),
+
+  setPlaying: (playing) => set({ isPlaying: playing }),
+
+  setZoom: (zoom) => set({ zoom }),
+
+  setActiveTool: (tool) => set({ activeTool: tool }),
+
+  setNoiseReduction: (enabled) => set({ noiseReductionEnabled: enabled }),
+
+  setMasterVolume: (vol) => set({ masterVolume: vol }),
+
+  updateExportSettings: (settings) =>
+    set((s) => ({ exportSettings: { ...s.exportSettings, ...settings } })),
+
+  recomputeDuration: () =>
+    set((s) => ({
+      duration: s.clips.reduce((max, c) => Math.max(max, c.startTime + clipEffectiveDuration(c)), 0),
+    })),
+
+  reset: () =>
+    set({
+      projectId: generateId(),
+      projectName: 'Untitled Project',
+      mediaItems: [],
+      clips: [],
+      isPlaying: false,
+      currentTime: 0,
+      duration: 0,
+      zoom: 1,
+      activeTool: 'select',
+      selectedClipId: null,
+      noiseReductionEnabled: false,
+      masterVolume: 1,
+      exportSettings: DEFAULT_EXPORT,
+    }),
+}));
