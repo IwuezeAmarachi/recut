@@ -67,4 +67,4 @@ export function getAudioDuration(file: File): Promise<number> {
 
 export const ACCEPTED_VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/webm'];
 export const ACCEPTED_AUDIO_TYPES = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/flac', 'audio/aac'];
-export const MAX_FILE_SIZE = 4 * 1024 * 1024 * 1024; // 4 GB
+export const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10 GB

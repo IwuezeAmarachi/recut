@@ -133,7 +133,7 @@ export function UploadZone() {
               </p>
             </div>
             <p className="text-2xs text-ink-3 tracking-wide">
-              MP4 · MOV · AVI · MKV · WebM &nbsp;·&nbsp; up to 4 GB
+              MP4 · MOV · AVI · MKV · WebM &nbsp;·&nbsp; up to 10 GB
             </p>
           </>
         )}
