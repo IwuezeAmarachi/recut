@@ -1,5 +1,6 @@
 'use client';
 import { useRef, useState } from 'react';
+import { Scissors } from 'lucide-react';
 import { cn, clamp, formatDuration } from '@/lib/utils';
 import { useEditorStore } from '@/store/editorStore';
 import { clipEffectiveDuration } from '@/types/editor';
@@ -59,9 +60,12 @@ interface ClipItemProps {
 export function ClipItem({ clip, pxPerSec, isSelected }: ClipItemProps) {
   const selectClip = useEditorStore((s) => s.selectClip);
   const updateClip = useEditorStore((s) => s.updateClip);
+  const splitClipAtTime = useEditorStore((s) => s.splitClipAtTime);
+  const activeTool = useEditorStore((s) => s.activeTool);
   const mediaItem = useEditorStore((s) => s.mediaItems.find((m) => m.id === clip.mediaId));
 
   const [trimming, setTrimming] = useState<{ edge: 'in' | 'out'; dur: number } | null>(null);
+  const [cutPreviewX, setCutPreviewX] = useState<number | null>(null);
 
   const effectiveDur = clipEffectiveDuration(clip);
   const left = clip.startTime * pxPerSec;
@@ -69,8 +73,22 @@ export function ClipItem({ clip, pxPerSec, isSelected }: ClipItemProps) {
 
   const isDraggingRef = useRef(false);
 
+  const isCutTool = activeTool === 'cut';
+
+  // ── Cut tool — click splits the clip ───────────────────────────────────────
+  const handleCutClick = (e: React.MouseEvent) => {
+    if (!isCutTool) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const xFrac = (e.clientX - rect.left) / rect.width;
+    const splitTime = clip.startTime + xFrac * effectiveDur;
+    splitClipAtTime(clip.id, splitTime);
+  };
+
   // ── Move clip (drag body) ───────────────────────────────────────────────────
   const handleBodyMouseDown = (e: React.MouseEvent) => {
+    if (isCutTool) return; // cut tool uses click, not drag
     if ((e.currentTarget as HTMLElement).dataset.handle) return;
     e.preventDefault();
     e.stopPropagation();
@@ -142,10 +160,15 @@ export function ClipItem({ clip, pxPerSec, isSelected }: ClipItemProps) {
   return (
     <div
       onMouseDown={handleBodyMouseDown}
-      onClick={handleClick}
+      onClick={isCutTool ? handleCutClick : handleClick}
+      onMouseMove={isCutTool ? (e) => {
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        setCutPreviewX(e.clientX - rect.left);
+      } : undefined}
+      onMouseLeave={isCutTool ? () => setCutPreviewX(null) : undefined}
       className={cn(
         'clip-item absolute top-1.5 bottom-1.5 rounded-md select-none',
-        'cursor-grab active:cursor-grabbing',
+        isCutTool ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing',
         clip.type === 'video'
           ? 'bg-surface-3 border border-edge'
           : 'bg-[#1C2626] border border-[#2A3636]',
@@ -194,6 +217,17 @@ export function ClipItem({ clip, pxPerSec, isSelected }: ClipItemProps) {
       {trimming && (
         <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-surface-4 px-1.5 py-0.5 text-2xs text-ink-1 shadow">
           {formatDuration(trimming.dur)}
+        </div>
+      )}
+
+      {/* ── Cut preview line ───────────────────────────────────────────── */}
+      {isCutTool && cutPreviewX !== null && (
+        <div
+          className="pointer-events-none absolute top-0 bottom-0 z-20 flex flex-col items-center"
+          style={{ left: cutPreviewX }}
+        >
+          <Scissors size={9} className="absolute top-1 -translate-x-1/2 text-white/80" />
+          <div className="h-full w-px bg-white/80" />
         </div>
       )}
 

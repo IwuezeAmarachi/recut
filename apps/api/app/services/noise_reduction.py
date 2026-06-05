@@ -18,10 +18,10 @@ from app.core.config import settings
 # ─────────────────────────────────────────────────────────────
 # Tuning constants — tweak to taste
 # ─────────────────────────────────────────────────────────────
-_AFFTDN_NR = 20        # spectral noise reduction in dB (0–97)
-_AFFTDN_NF = -25       # estimated noise floor in dBFS (typically -30 to -15)
+_AFFTDN_NR = 24        # spectral NR in dB — bumped for USB condenser self-noise
+_AFFTDN_NF = -30       # noise floor dBFS — -30 fits home recording with condenser mic
 _GATE_THRESHOLD = 0.02  # open gate above this RMS level (linear, ~-34 dBFS)
-_GATE_RATIO = 1.8       # gentle: 1.8–2.5; aggressive: 4+
+_GATE_RATIO = 2.0       # slightly firmer gate for room noise between words
 _GATE_ATTACK = 5        # ms to open gate (keep fast so speech onset isn't cut)
 _GATE_RELEASE = 350     # ms to close gate (keep slow to avoid choppiness)
 

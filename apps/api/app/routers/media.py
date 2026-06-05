@@ -138,7 +138,7 @@ async def denoise_media(project_id: str, media_id: str) -> dict:
 
     is_video = media.get("type") == "video"
     wav_path = str(dest_path.with_suffix(".wav"))
-    denoised_wav = str(dest_path.with_suffix("_clean.wav"))
+    denoised_wav = str(dest_path.parent / (dest_path.stem + "_clean.wav"))
 
     if is_video:
         ok = await extract_audio(str(src_path), wav_path)

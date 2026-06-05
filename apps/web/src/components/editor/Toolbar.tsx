@@ -1,4 +1,5 @@
 'use client';
+import { useRef, useState, useEffect } from 'react';
 import { MousePointer2, Scissors, SplitSquareHorizontal, Crop, Gauge, Undo2, Redo2, ZoomIn, ZoomOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -12,6 +13,8 @@ const tools: { id: Tool; label: string; icon: React.ReactNode; shortcut: string 
   { id: 'trim', label: 'Trim', icon: <Crop size={15} strokeWidth={1.75} />, shortcut: 'T' },
 ];
 
+const SPEED_PRESETS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
+
 export function Toolbar() {
   const activeTool = useEditorStore((s) => s.activeTool);
   const setActiveTool = useEditorStore((s) => s.setActiveTool);
@@ -20,6 +23,14 @@ export function Toolbar() {
   const selectedClipId = useEditorStore((s) => s.selectedClipId);
   const currentTime = useEditorStore((s) => s.currentTime);
   const splitClipAtTime = useEditorStore((s) => s.splitClipAtTime);
+  const clips = useEditorStore((s) => s.clips);
+  const updateClip = useEditorStore((s) => s.updateClip);
+
+  const selectedClip = clips.find((c) => c.id === selectedClipId);
+  const currentSpeed = selectedClip?.speed ?? 1;
+
+  const [speedOpen, setSpeedOpen] = useState(false);
+  const speedRef = useRef<HTMLDivElement>(null);
 
   const handleToolClick = (tool: Tool) => {
     if (tool === 'split' && selectedClipId) {
@@ -28,6 +39,20 @@ export function Toolbar() {
       setActiveTool(tool);
     }
   };
+
+  const handleSpeedSelect = (speed: number) => {
+    if (selectedClipId) updateClip(selectedClipId, { speed });
+    setSpeedOpen(false);
+  };
+
+  useEffect(() => {
+    if (!speedOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (speedRef.current && !speedRef.current.contains(e.target as Node)) setSpeedOpen(false);
+    };
+    window.addEventListener('mousedown', handler);
+    return () => window.removeEventListener('mousedown', handler);
+  }, [speedOpen]);
 
   return (
     <div className="flex h-10 shrink-0 items-center gap-1 border-y border-edge bg-surface-1 px-3">
@@ -61,10 +86,40 @@ export function Toolbar() {
 
       <Separator />
 
-      {/* Speed indicator */}
-      <div className="flex items-center gap-1.5 text-ink-3">
-        <Gauge size={13} strokeWidth={1.75} />
-        <span className="text-2xs">Speed</span>
+      {/* Speed control */}
+      <div ref={speedRef} className="relative">
+        <Tooltip content="Speed" side="top">
+          <button
+            onClick={() => setSpeedOpen((o) => !o)}
+            disabled={!selectedClipId}
+            className={cn(
+              'flex h-7 items-center gap-1.5 rounded-md px-2 text-2xs transition-colors',
+              selectedClipId ? 'text-ink-2 hover:bg-surface-2 hover:text-ink-1' : 'text-ink-3 opacity-40 cursor-not-allowed',
+              currentSpeed !== 1 && 'text-ink-1',
+            )}
+          >
+            <Gauge size={13} strokeWidth={1.75} />
+            <span className="tabular-nums">{currentSpeed}×</span>
+          </button>
+        </Tooltip>
+
+        {speedOpen && (
+          <div className="absolute bottom-full left-0 mb-1 z-50 rounded-lg border border-edge bg-surface-2 p-1 shadow-lg">
+            {SPEED_PRESETS.map((s) => (
+              <button
+                key={s}
+                onClick={() => handleSpeedSelect(s)}
+                className={cn(
+                  'flex w-full items-center justify-between gap-4 rounded-md px-3 py-1.5 text-2xs transition-colors hover:bg-surface-3',
+                  s === currentSpeed ? 'text-ink-1 font-medium' : 'text-ink-2',
+                )}
+              >
+                <span>{s}×</span>
+                {s === 1 && <span className="text-ink-3">Normal</span>}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <Separator />

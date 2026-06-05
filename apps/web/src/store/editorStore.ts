@@ -41,7 +41,7 @@ interface EditorStore {
   selectClip: (id: string | null) => void;
   setCurrentTime: (time: number) => void;
   setPlaying: (playing: boolean) => void;
-  setZoom: (zoom: number) => void;
+  setZoom: (zoom: number | ((z: number) => number)) => void;
   setActiveTool: (tool: Tool) => void;
   setNoiseReduction: (enabled: boolean) => void;
   setNormalizeAudio: (enabled: boolean) => void;
@@ -171,7 +171,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   selectClip: (id) => set({ selectedClipId: id, selectedCaptionId: null }),
   setCurrentTime: (time) => set({ currentTime: time }),
   setPlaying: (playing) => set({ isPlaying: playing }),
-  setZoom: (zoom) => set({ zoom }),
+  setZoom: (zoom) => set((s) => ({ zoom: typeof zoom === 'function' ? zoom(s.zoom) : zoom })),
   setActiveTool: (tool) => set({ activeTool: tool }),
   setNoiseReduction: (enabled) => set({ noiseReductionEnabled: enabled }),
   setNormalizeAudio: (enabled) => set({ normalizeAudio: enabled }),
