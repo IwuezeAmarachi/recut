@@ -31,6 +31,8 @@ export interface MediaItem {
   url: string;
   denoisedUrl?: string;     // server URL of ML-denoised version
   denoising?: boolean;      // denoise job running
+  isolatedUrl?: string;     // server URL of voice-isolated version
+  isolating?: boolean;      // isolation job running
   waveformPeaks?: number[]; // normalised peak amplitude per bucket (0–1)
   duration: number;
   width?: number;

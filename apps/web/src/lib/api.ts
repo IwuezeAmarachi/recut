@@ -80,6 +80,8 @@ export const api = {
       ),
     denoise: (projectId: string, mediaId: string) =>
       request<{ url: string }>(`/projects/${projectId}/media/${mediaId}/denoise`, { method: 'POST' }),
+    isolate: (projectId: string, mediaId: string) =>
+      request<{ url: string; method: string }>(`/projects/${projectId}/media/${mediaId}/isolate`, { method: 'POST' }),
     waveform: (projectId: string, mediaId: string, points = 400) =>
       request<{ peaks: number[]; duration: number }>(
         `/projects/${projectId}/media/${mediaId}/waveform?points=${points}`,

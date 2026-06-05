@@ -167,14 +167,20 @@ export const ClipItem = memo(function ClipItem({ clip, pxPerSec, isSelected }: C
       } : undefined}
       onMouseLeave={isCutTool ? () => setCutPreviewX(null) : undefined}
       className={cn(
-        'clip-item absolute top-1.5 bottom-1.5 rounded-md select-none',
+        'clip-item absolute top-1.5 bottom-1.5 rounded-md select-none overflow-hidden',
         isCutTool ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing',
         clip.type === 'video'
-          ? 'bg-surface-3 border border-edge'
-          : 'bg-[#1C2626] border border-[#2A3636]',
-        isSelected && 'selected ring-1 ring-ink-1',
+          ? 'border border-[#3A5080]'
+          : 'border border-[#1E4040]',
+        isSelected ? 'ring-1 ring-white/70' : '',
       )}
-      style={{ left, width }}
+      style={{
+        left,
+        width,
+        background: clip.type === 'video'
+          ? 'linear-gradient(180deg, #1e3a5f 0%, #16304f 100%)'
+          : 'linear-gradient(180deg, #0f3030 0%, #0a2626 100%)',
+      }}
     >
       {/* ── Left trim handle ───────────────────────────────────────────── */}
       <div
@@ -182,29 +188,28 @@ export const ClipItem = memo(function ClipItem({ clip, pxPerSec, isSelected }: C
         onMouseDown={(e) => handleTrimMouseDown('in', e)}
         className="absolute left-0 top-0 bottom-0 w-3 z-10 flex items-center justify-center cursor-ew-resize hover:bg-white/10 rounded-l-md transition-colors"
       >
-        <div className="h-5 w-0.5 rounded-full bg-ink-3 group-hover:bg-ink-1" />
+        <div className="h-5 w-0.5 rounded-full bg-white/30" />
       </div>
 
-      {/* ── Content ────────────────────────────────────────────────────── */}
+      {/* ── Waveform (shown when loaded) ───────────────────────────────── */}
       <div className="absolute inset-0 overflow-hidden">
-        {mediaItem?.waveformPeaks ? (
+        {mediaItem?.waveformPeaks && (
           <Waveform
             peaks={mediaItem.waveformPeaks}
             clipDuration={clip.duration}
             trimIn={clip.trimIn}
             trimOut={clip.trimOut}
-            color={clip.type === 'video' ? '#6B7280' : '#2DD4BF'}
+            color={clip.type === 'video' ? '#5b9bd5' : '#2DD4BF'}
           />
-        ) : (
-          <FallbackBars type={clip.type} width={width} />
-        )}
-        {/* Clip name pinned top-left */}
-        {width > 60 && (
-          <span className="absolute left-3 top-1 text-2xs font-medium text-ink-2/80 pointer-events-none leading-none truncate max-w-[calc(100%-24px)]">
-            {clip.name}
-          </span>
         )}
       </div>
+
+      {/* ── Clip name ──────────────────────────────────────────────────── */}
+      {width > 50 && (
+        <span className="absolute left-3 bottom-1.5 text-2xs font-medium text-white/60 pointer-events-none leading-none truncate max-w-[calc(100%-24px)]">
+          {clip.name}
+        </span>
+      )}
 
       {/* ── Speed badge ─────────────────────────────────────────────────── */}
       {clip.speed !== 1 && width > 50 && (
@@ -237,27 +242,9 @@ export const ClipItem = memo(function ClipItem({ clip, pxPerSec, isSelected }: C
         onMouseDown={(e) => handleTrimMouseDown('out', e)}
         className="absolute right-0 top-0 bottom-0 w-3 z-10 flex items-center justify-center cursor-ew-resize hover:bg-white/10 rounded-r-md transition-colors"
       >
-        <div className="h-5 w-0.5 rounded-full bg-ink-3 group-hover:bg-ink-1" />
+        <div className="h-5 w-0.5 rounded-full bg-white/30" />
       </div>
     </div>
   );
 });
 
-function FallbackBars({ type, width }: { type: 'video' | 'audio'; width: number }) {
-  const bars = Math.max(4, Math.floor((width - 8) / 5));
-  const color = type === 'audio' ? 'bg-teal-400/40' : 'bg-ink-3/30';
-  return (
-    <div className="absolute inset-0 flex items-center gap-px px-3.5">
-      {Array.from({ length: bars }).map((_, i) => {
-        const h = 20 + Math.abs(Math.sin(i * 0.9 + 1) * 30 + Math.cos(i * 1.7) * 15);
-        return (
-          <div
-            key={i}
-            className={`w-[2px] shrink-0 rounded-sm ${color}`}
-            style={{ height: `${Math.min(80, h)}%` }}
-          />
-        );
-      })}
-    </div>
-  );
-}

@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.lib.store import media_store, project_store
 from app.services.ffmpeg_service import probe_media
 from app.services.transcription import transcribe_media
-from app.services.noise_reduction import apply_rnnoise, extract_audio, merge_denoised_audio
+from app.services.noise_reduction import apply_rnnoise, apply_voice_isolation, extract_audio, merge_denoised_audio
 
 router = APIRouter()
 
@@ -163,6 +163,56 @@ async def denoise_media(project_id: str, media_id: str) -> dict:
             pass
 
     return {"url": f"/media/{project_id}/{dest_name}"}
+
+
+@router.post("/{project_id}/media/{media_id}/isolate")
+async def isolate_voice(project_id: str, media_id: str) -> dict:
+    """
+    Isolate the foreground voice, removing background speech, laughter, music.
+    Uses Demucs if installed, otherwise a high-aggression FFmpeg chain.
+    """
+    bucket = media_store.get(project_id, {})
+    media = bucket.get(media_id)
+    if not media:
+        raise HTTPException(404, "Media not found")
+
+    src_path = settings.upload_dir / project_id / Path(media["url"]).name
+    if not src_path.exists():
+        raise HTTPException(404, "Media file not found on disk")
+
+    dest_name = src_path.stem + "_isolated" + src_path.suffix
+    dest_path = settings.upload_dir / project_id / dest_name
+
+    if dest_path.exists():
+        return {"url": f"/media/{project_id}/{dest_name}", "method": "cached"}
+
+    is_video = media.get("type") == "video"
+    wav_path = str(src_path.with_suffix(".wav"))
+    isolated_wav = str(src_path.parent / (src_path.stem + "_iso_clean.wav"))
+
+    if is_video:
+        ok = await extract_audio(str(src_path), wav_path)
+        if not ok:
+            raise HTTPException(500, "Failed to extract audio")
+        ok, method = await apply_voice_isolation(wav_path, isolated_wav)
+        if not ok:
+            raise HTTPException(500, "Voice isolation failed")
+        ok = await merge_denoised_audio(str(src_path), isolated_wav, str(dest_path))
+        if not ok:
+            raise HTTPException(500, "Failed to merge isolated audio")
+    else:
+        ok, method = await apply_voice_isolation(str(src_path), str(dest_path))
+        if not ok:
+            raise HTTPException(500, "Voice isolation failed")
+        method = "enhanced_ffmpeg"
+
+    for p in [wav_path, isolated_wav]:
+        try:
+            Path(p).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    return {"url": f"/media/{project_id}/{dest_name}", "method": method}
 
 
 @router.post("/{project_id}/media/{media_id}/transcribe")

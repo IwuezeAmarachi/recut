@@ -127,6 +127,7 @@ export function VideoPreview() {
   const duration = useEditorStore((s) => s.duration);
   const masterVolume = useEditorStore((s) => s.masterVolume);
   const noiseReductionEnabled = useEditorStore((s) => s.noiseReductionEnabled);
+  const voiceIsolationEnabled = useEditorStore((s) => s.voiceIsolationEnabled);
   const normalizeAudio = useEditorStore((s) => s.normalizeAudio);
   const setPlaying = useEditorStore((s) => s.setPlaying);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
@@ -156,14 +157,17 @@ export function VideoPreview() {
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    const newSrc = (noiseReductionEnabled && activeMedia?.denoisedUrl)
+    // Priority: voice isolation > noise reduction > original
+    const newSrc = (voiceIsolationEnabled && activeMedia?.isolatedUrl)
+      ? activeMedia.isolatedUrl
+      : (noiseReductionEnabled && activeMedia?.denoisedUrl)
       ? activeMedia.denoisedUrl
       : activeMedia?.url ?? '';
     if (srcRef.current === newSrc) return;
     srcRef.current = newSrc;
     video.src = newSrc;
     if (newSrc) video.load();
-  }, [activeMedia?.url, activeMedia?.denoisedUrl, noiseReductionEnabled]);
+  }, [activeMedia?.url, activeMedia?.denoisedUrl, activeMedia?.isolatedUrl, noiseReductionEnabled, voiceIsolationEnabled]);
 
   // ── Volume ─────────────────────────────────────────────────────────────────
   useEffect(() => {

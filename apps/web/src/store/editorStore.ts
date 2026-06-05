@@ -24,6 +24,7 @@ interface EditorStore {
   selectedClipId: string | null;
   selectedCaptionId: string | null;
   noiseReductionEnabled: boolean;
+  voiceIsolationEnabled: boolean;
   normalizeAudio: boolean;
   masterVolume: number;
   exportSettings: ExportSettings;
@@ -44,6 +45,7 @@ interface EditorStore {
   setZoom: (zoom: number | ((z: number) => number)) => void;
   setActiveTool: (tool: Tool) => void;
   setNoiseReduction: (enabled: boolean) => void;
+  setVoiceIsolation: (enabled: boolean) => void;
   setNormalizeAudio: (enabled: boolean) => void;
   setMasterVolume: (vol: number) => void;
   updateExportSettings: (settings: Partial<ExportSettings>) => void;
@@ -53,6 +55,8 @@ interface EditorStore {
   setMediaDenoising: (id: string, denoising: boolean) => void;
   setMediaDenoisedUrl: (id: string, url: string) => void;
   setMediaWaveform: (id: string, peaks: number[]) => void;
+  setMediaIsolating: (id: string, isolating: boolean) => void;
+  setMediaIsolatedUrl: (id: string, url: string) => void;
 
   // Captions
   addCaption: (startTime: number, text?: string) => Caption;
@@ -84,6 +88,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   selectedClipId: null,
   selectedCaptionId: null,
   noiseReductionEnabled: false,
+  voiceIsolationEnabled: false,
   normalizeAudio: false,
   masterVolume: 1,
   exportSettings: DEFAULT_EXPORT,
@@ -174,6 +179,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   setZoom: (zoom) => set((s) => ({ zoom: typeof zoom === 'function' ? zoom(s.zoom) : zoom })),
   setActiveTool: (tool) => set({ activeTool: tool }),
   setNoiseReduction: (enabled) => set({ noiseReductionEnabled: enabled }),
+  setVoiceIsolation: (enabled) => set({ voiceIsolationEnabled: enabled }),
   setNormalizeAudio: (enabled) => set({ normalizeAudio: enabled }),
   setMasterVolume: (vol) => set({ masterVolume: vol }),
   updateExportSettings: (settings) =>
@@ -231,6 +237,18 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       mediaItems: s.mediaItems.map((m) => (m.id === id ? { ...m, waveformPeaks: peaks } : m)),
     })),
 
+  setMediaIsolating: (id, isolating) =>
+    set((s) => ({
+      mediaItems: s.mediaItems.map((m) => (m.id === id ? { ...m, isolating } : m)),
+    })),
+
+  setMediaIsolatedUrl: (id, url) =>
+    set((s) => ({
+      mediaItems: s.mediaItems.map((m) =>
+        m.id === id ? { ...m, isolatedUrl: url, isolating: false } : m,
+      ),
+    })),
+
   selectCaption: (id) => set({ selectedCaptionId: id, selectedClipId: null }),
   setCaptionsGenerating: (v) => set({ captionsGenerating: v }),
 
@@ -249,6 +267,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       selectedClipId: null,
       selectedCaptionId: null,
       noiseReductionEnabled: false,
+      voiceIsolationEnabled: false,
       normalizeAudio: false,
       masterVolume: 1,
       exportSettings: DEFAULT_EXPORT,

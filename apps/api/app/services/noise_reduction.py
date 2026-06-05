@@ -1,55 +1,75 @@
 """
-Multi-stage audio noise reduction pipeline.
+Audio noise reduction pipelines.
 
-Stage order (matters — each stage handles what the previous misses):
-  1. arnndn   — RNNoise neural net: broadband stationary + non-stationary noise
-  2. afftdn   — FFT spectral denoising: tonal/steady noise (HVAC hum, fan whine)
-  3. adeclick — Click & pop removal (mouse clicks, mic handling)
-  4. agate    — Noise gate: silences residual background between words
-  5. acompressor — Final levelling to restore perceived loudness lost by gating
+Two modes:
+  apply_rnnoise()        — standard NR: fan, HVAC, hum, room noise
+  apply_voice_isolation() — voice isolation: removes background speech,
+                            laughter, phone calls. Uses Demucs (Meta's
+                            source-separation AI) when installed, otherwise
+                            falls back to an enhanced FFmpeg chain.
 
-This combination routinely outperforms single-stage AI denoise
-(as used in CapCut, Zoom, etc.) because each filter targets a different
-noise profile, and the gate stage removes noise that neural nets leave behind.
+Standard chain (5 stages):
+  1. arnndn ×2  — two RNNoise passes; second pass catches what first misses
+  2. anlmdn     — non-local means: non-stationary noise (voices, movement)
+  3. afftdn     — spectral: steady tonal noise (HVAC, fan whine)
+  4. adeclick   — click/pop removal
+  5. agate      — noise gate: silence between words
+  6. acompressor — final levelling
+
+Voice isolation chain (Demucs not available):
+  Same as above but with much higher anlmdn strength and afftdn aggression.
+  Not as clean as Demucs but significantly better than standard NR for
+  competing voices.
 """
 import asyncio
+import shutil
+from pathlib import Path
 from app.core.config import settings
 
 # ─────────────────────────────────────────────────────────────
-# Tuning constants — tweak to taste
+# Tuning constants
 # ─────────────────────────────────────────────────────────────
-_AFFTDN_NR = 24        # spectral NR in dB — bumped for USB condenser self-noise
-_AFFTDN_NF = -30       # noise floor dBFS — -30 fits home recording with condenser mic
-_GATE_THRESHOLD = 0.02  # open gate above this RMS level (linear, ~-34 dBFS)
-_GATE_RATIO = 2.0       # slightly firmer gate for room noise between words
-_GATE_ATTACK = 5        # ms to open gate (keep fast so speech onset isn't cut)
-_GATE_RELEASE = 350     # ms to close gate (keep slow to avoid choppiness)
+_AFFTDN_NR = 24         # spectral NR in dB — tuned for USB condenser self-noise
+_AFFTDN_NF = -30        # noise floor dBFS — home recording with condenser mic
+_GATE_THRESHOLD = 0.02  # open gate above ~-34 dBFS
+_GATE_RATIO = 2.0
+_GATE_ATTACK = 5        # ms
+_GATE_RELEASE = 350     # ms
 
-# Full filter chain as a single FFmpeg -af string
+# Standard NR — handles fan, HVAC, hum, USB hiss
+# Double arnndn: second pass works on already-cleaned signal, catches more noise
 _DENOISE_CHAIN = (
-    "arnndn,"                                           # 1. Neural NR
-    f"afftdn=nr={_AFFTDN_NR}:nf={_AFFTDN_NF}:tn=1,"   # 2. Spectral NR (tn=1 tracks noise)
-    "adeclick=w=55:o=25:a=2,"                           # 3. Click/pop removal
-    f"agate=threshold={_GATE_THRESHOLD}"
-    f":ratio={_GATE_RATIO}"
-    f":attack={_GATE_ATTACK}"
-    f":release={_GATE_RELEASE},"                        # 4. Noise gate
-    "acompressor=threshold=0.1:ratio=3:attack=5:release=80:makeup=1.5"  # 5. Leveller
+    "arnndn,"
+    "arnndn,"                                              # second neural pass
+    "anlmdn=s=5:p=0.002:r=0.002:m=0,"                    # non-local means (non-stationary)
+    f"afftdn=nr={_AFFTDN_NR}:nf={_AFFTDN_NF}:tn=1,"
+    "adeclick=w=55:o=25:a=2,"
+    f"agate=threshold={_GATE_THRESHOLD}:ratio={_GATE_RATIO}"
+    f":attack={_GATE_ATTACK}:release={_GATE_RELEASE},"
+    "acompressor=threshold=0.1:ratio=3:attack=5:release=80:makeup=1.5"
+)
+
+# Voice isolation fallback — more aggressive anlmdn for competing speech
+_ISOLATE_CHAIN = (
+    "arnndn,"
+    "arnndn,"
+    "anlmdn=s=25:p=0.002:r=0.003:m=0,"                   # high strength for background voices
+    "arnndn,"                                              # third pass after heavy cleanup
+    f"afftdn=nr=40:nf=-35:tn=1,"                          # more aggressive spectral
+    "adeclick=w=55:o=25:a=2,"
+    "agate=threshold=0.025:ratio=3:attack=5:release=400,"
+    "acompressor=threshold=0.1:ratio=4:attack=5:release=80:makeup=2"
 )
 
 
 async def apply_rnnoise(input_path: str, output_path: str) -> bool:
-    """
-    Apply the full multi-stage denoise chain to a WAV file.
-    Returns True on success.
-    """
+    """Standard multi-stage denoise. Best for stationary noise (fan, hum, HVAC)."""
     proc = await asyncio.create_subprocess_exec(
         settings.ffmpeg_path,
-        "-y",
-        "-i", input_path,
+        "-y", "-i", input_path,
         "-af", _DENOISE_CHAIN,
         "-c:a", "pcm_s16le",
-        "-ar", "48000",   # upsample to 48k — arnndn works best here
+        "-ar", "48000",
         output_path,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
@@ -57,7 +77,7 @@ async def apply_rnnoise(input_path: str, output_path: str) -> bool:
     _, stderr = await proc.communicate()
 
     if proc.returncode != 0:
-        # Graceful fallback: arnndn only (minimal but always works)
+        # Minimal fallback
         fallback = await asyncio.create_subprocess_exec(
             settings.ffmpeg_path,
             "-y", "-i", input_path,
@@ -71,6 +91,82 @@ async def apply_rnnoise(input_path: str, output_path: str) -> bool:
         return fallback.returncode == 0
 
     return True
+
+
+async def apply_voice_isolation(input_path: str, output_path: str) -> tuple[bool, str]:
+    """
+    Isolate the foreground voice, suppressing background speech/laughter/music.
+    Returns (success, method_used) where method_used is 'demucs' or 'enhanced_ffmpeg'.
+
+    Tries Demucs first (pip install demucs). Falls back to an aggressive FFmpeg
+    chain if Demucs is not installed.
+    """
+    # Try Demucs (Meta's source-separation model — best quality)
+    ok = await _try_demucs(input_path, output_path)
+    if ok:
+        return True, "demucs"
+
+    # Fallback: aggressive FFmpeg chain
+    ok = await _enhanced_ffmpeg_isolate(input_path, output_path)
+    return ok, "enhanced_ffmpeg"
+
+
+async def _try_demucs(input_path: str, output_path: str) -> bool:
+    """Run Demucs vocal separation. Returns False if not installed."""
+    # Quick availability check
+    check = await asyncio.create_subprocess_exec(
+        "python3", "-c", "import demucs",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await check.communicate()
+    if check.returncode != 0:
+        return False
+
+    import tempfile
+    tmp = tempfile.mkdtemp()
+    stem = Path(input_path).stem
+
+    proc = await asyncio.create_subprocess_exec(
+        "python3", "-m", "demucs",
+        "--two-stems=vocals",
+        "--no-split",
+        "-n", "htdemucs",
+        "-o", tmp,
+        input_path,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        shutil.rmtree(tmp, ignore_errors=True)
+        return False
+
+    vocals_path = Path(tmp) / "htdemucs" / stem / "vocals.wav"
+    if not vocals_path.exists():
+        shutil.rmtree(tmp, ignore_errors=True)
+        return False
+
+    shutil.copy(str(vocals_path), output_path)
+    shutil.rmtree(tmp, ignore_errors=True)
+    return True
+
+
+async def _enhanced_ffmpeg_isolate(input_path: str, output_path: str) -> bool:
+    """High-aggression FFmpeg chain for background voice suppression."""
+    proc = await asyncio.create_subprocess_exec(
+        settings.ffmpeg_path,
+        "-y", "-i", input_path,
+        "-af", _ISOLATE_CHAIN,
+        "-c:a", "pcm_s16le",
+        "-ar", "48000",
+        output_path,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    return proc.returncode == 0
 
 
 async def extract_audio(video_path: str, audio_path: str) -> bool:
