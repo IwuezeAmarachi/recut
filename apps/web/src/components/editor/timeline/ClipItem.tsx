@@ -6,19 +6,19 @@ import { useEditorStore } from '@/store/editorStore';
 import { clipEffectiveDuration } from '@/types/editor';
 import type { Clip } from '@/types/editor';
 
-// ── Real waveform renderer ───────────────────────────────────────────────────
+// ── Waveform renderer — white bars centered on clip, CapCut style ────────────
 function Waveform({
   peaks,
   clipDuration,
   trimIn,
   trimOut,
-  color,
+  isAudio,
 }: {
   peaks: number[];
   clipDuration: number;
   trimIn: number;
   trimOut: number;
-  color: string;
+  isAudio: boolean;
 }) {
   if (!peaks.length) return null;
   const startFrac = clipDuration > 0 ? trimIn / clipDuration : 0;
@@ -31,19 +31,19 @@ function Waveform({
     <svg
       className="absolute inset-0 w-full h-full"
       preserveAspectRatio="none"
-      viewBox={`0 0 ${visible.length} 2`}
+      viewBox={`0 0 ${visible.length} 100`}
     >
       {visible.map((amp, i) => {
-        const h = Math.max(0.04, amp);
+        const h = Math.max(2, amp * 85); // 0–85% of height, min 2px visible
+        const y = (100 - h) / 2;
         return (
           <rect
             key={i}
             x={i}
-            y={1 - h}
-            width={0.7}
-            height={h * 2}
-            fill={color}
-            opacity={0.75}
+            y={y}
+            width={0.8}
+            height={h}
+            fill={isAudio ? '#4ade80' : 'rgba(255,255,255,0.75)'}
           />
         );
       })}
@@ -199,7 +199,7 @@ export const ClipItem = memo(function ClipItem({ clip, pxPerSec, isSelected }: C
             clipDuration={clip.duration}
             trimIn={clip.trimIn}
             trimOut={clip.trimOut}
-            color={clip.type === 'video' ? '#5b9bd5' : '#2DD4BF'}
+            isAudio={clip.type === 'audio'}
           />
         )}
       </div>

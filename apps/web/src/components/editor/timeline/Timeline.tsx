@@ -94,7 +94,7 @@ export function Timeline() {
   };
 
   return (
-    <div className="relative flex h-[210px] shrink-0 flex-col border-t border-edge bg-bg select-none">
+    <div className="relative flex h-[240px] shrink-0 flex-col border-t border-edge bg-bg select-none">
       {/* Scrollable area */}
       <div ref={scrollRef} className="flex flex-1 flex-col overflow-x-auto overflow-y-hidden">
         <div className="flex flex-col" style={{ minWidth: totalWidth + TRACK_HEADER_W }}>

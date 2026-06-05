@@ -11,10 +11,11 @@ import type { Caption } from '@/types/editor';
 class AudioProcessor {
   private ctx: AudioContext | null = null;
   private source: MediaElementAudioSourceNode | null = null;
+  private gainNode: GainNode | null = null;
   private nrEnabled = false;
   private normalizeEnabled = false;
+  private clipVolume = 1;
 
-  /** Must be called inside a user-gesture handler (e.g. play click). */
   init(video: HTMLVideoElement): void {
     if (this.ctx) {
       if (this.ctx.state === 'suspended') this.ctx.resume();
@@ -25,20 +26,16 @@ class AudioProcessor {
       this.source = this.ctx.createMediaElementSource(video);
       this.rebuild();
     } catch {
-      // AudioContext unavailable — video still plays, just without NR
       this.ctx = null;
       this.source = null;
     }
   }
 
-  setNR(enabled: boolean): void {
-    this.nrEnabled = enabled;
-    this.rebuild();
-  }
-
-  setNormalize(enabled: boolean): void {
-    this.normalizeEnabled = enabled;
-    this.rebuild();
+  setNR(enabled: boolean): void { this.nrEnabled = enabled; this.rebuild(); }
+  setNormalize(enabled: boolean): void { this.normalizeEnabled = enabled; this.rebuild(); }
+  setClipVolume(vol: number): void {
+    this.clipVolume = vol;
+    if (this.gainNode) this.gainNode.gain.value = vol;
   }
 
   private rebuild(): void {
@@ -47,38 +44,31 @@ class AudioProcessor {
 
     let last: AudioNode = this.source;
 
+    // Per-clip gain
+    const gain = this.ctx.createGain();
+    gain.gain.value = this.clipVolume;
+    this.gainNode = gain;
+    last.connect(gain);
+    last = gain;
+
     if (this.nrEnabled) {
-      // Stage 1: Subsonic rumble cut — stays below voice fundamentals
       const hp = this.ctx.createBiquadFilter();
-      hp.type = 'highpass';
-      hp.frequency.value = 80;
-      hp.Q.value = 0.7;
+      hp.type = 'highpass'; hp.frequency.value = 80; hp.Q.value = 0.7;
 
-      // Stage 2: Gentle low-shelf to reduce HVAC/room rumble without killing warmth
       const ls = this.ctx.createBiquadFilter();
-      ls.type = 'lowshelf';
-      ls.frequency.value = 200;
-      ls.gain.value = -4;
+      ls.type = 'lowshelf'; ls.frequency.value = 200; ls.gain.value = -4;
 
-      // Stage 3: Power-line hum notches (EU 50/100/150 Hz + US 60/120/180 Hz)
       const humFreqs = [50, 100, 150, 60, 120, 180];
       const notches = humFreqs.map((freq) => {
         const n = this.ctx!.createBiquadFilter();
-        n.type = 'notch';
-        n.frequency.value = freq;
-        n.Q.value = 30;
+        n.type = 'notch'; n.frequency.value = freq; n.Q.value = 30;
         return n;
       });
 
-      // Stage 4: Gentle sibilance tame
       const hs = this.ctx.createBiquadFilter();
-      hs.type = 'highshelf';
-      hs.frequency.value = 8000;
-      hs.gain.value = -3;
+      hs.type = 'highshelf'; hs.frequency.value = 8000; hs.gain.value = -3;
 
-      // Chain: hp → ls → notches → hs
-      last.connect(hp);
-      hp.connect(ls);
+      last.connect(hp); hp.connect(ls);
       let node: AudioNode = ls;
       for (const n of notches) { node.connect(n); node = n; }
       node.connect(hs);
@@ -86,15 +76,10 @@ class AudioProcessor {
     }
 
     if (this.normalizeEnabled) {
-      // Gentle leveller — only active when the user explicitly enables Normalize
       const comp = this.ctx.createDynamicsCompressor();
-      comp.threshold.value = -18;
-      comp.knee.value = 20;
-      comp.ratio.value = 4;
-      comp.attack.value = 0.01;
-      comp.release.value = 0.25;
-      last.connect(comp);
-      last = comp;
+      comp.threshold.value = -18; comp.knee.value = 20;
+      comp.ratio.value = 4; comp.attack.value = 0.01; comp.release.value = 0.25;
+      last.connect(comp); last = comp;
     }
 
     last.connect(this.ctx.destination);
@@ -174,9 +159,12 @@ export function VideoPreview() {
     if (videoRef.current) videoRef.current.volume = masterVolume;
   }, [masterVolume]);
 
-  // ── NR / normalize (only affects AudioContext if already initialised) ──────
+  // ── NR / normalize / clip volume ──────────────────────────────────────────
   useEffect(() => { audioProc.current.setNR(noiseReductionEnabled); }, [noiseReductionEnabled]);
   useEffect(() => { audioProc.current.setNormalize(normalizeAudio); }, [normalizeAudio]);
+  useEffect(() => {
+    audioProc.current.setClipVolume(activeClip?.volume ?? 1);
+  }, [activeClip?.volume]);
 
   // Cleanup
   useEffect(() => {

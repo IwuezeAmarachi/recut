@@ -31,7 +31,7 @@ function TimelineTrack({ label, icon, trackIndex, clips, pxPerSec, totalWidth, o
   };
 
   return (
-    <div className="flex h-14 shrink-0">
+    <div className="flex h-[72px] shrink-0">
       {/* Header */}
       <div
         className="flex shrink-0 flex-col items-center justify-center gap-0.5 border-r border-edge bg-surface-1"
