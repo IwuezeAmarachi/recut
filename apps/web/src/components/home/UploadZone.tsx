@@ -40,46 +40,44 @@ export function UploadZone() {
       try {
         const url = URL.createObjectURL(file);
         const isVideo = ACCEPTED_VIDEO_TYPES.includes(file.type);
-
-        let duration = 0;
-        let width: number | undefined;
-        let height: number | undefined;
-
-        if (isVideo) {
-          const meta = await getVideoDimensions(file);
-          duration = meta.duration;
-          width = meta.width;
-          height = meta.height;
-        } else {
-          duration = await getAudioDuration(file);
-        }
-
-        // Get the freshly-reset projectId from the store
         const projectId = useEditorStore.getState().projectId;
 
-        // Add to local store immediately so the editor is ready
+        // Add to store and navigate immediately — don't block on metadata
         const item = addMedia({
           name: file.name,
           type: isVideo ? 'video' : 'audio',
           file,
           url,
-          duration,
-          width,
-          height,
+          duration: 0,
           uploading: true,
         });
         addClipFromMedia(item.id);
 
-        // Create project on server (idempotent — uses the same projectId)
         await api.projects.create(file.name.replace(/\.[^.]+$/, '') || 'Untitled', projectId);
-
-        // Upload file to server
-        const apiMedia = await api.media.upload(projectId, file, (pct) => setUploadPct(pct));
-        setMediaApiId(item.id, apiMedia.id);
-
         router.push(`/editor/${projectId}`);
+
+        // Metadata + upload run in parallel after navigation
+        const metaPromise = isVideo
+          ? getVideoDimensions(file)
+              .then(({ duration, width, height }) =>
+                useEditorStore.getState().updateMedia(item.id, { duration, width, height }),
+              )
+              .catch(() => {})
+          : getAudioDuration(file)
+              .then((duration) => useEditorStore.getState().updateMedia(item.id, { duration }))
+              .catch(() => {});
+
+        const uploadPromise = api.media.upload(projectId, file, (pct) => setUploadPct(pct))
+          .then(async (apiMedia) => {
+            setMediaApiId(item.id, apiMedia.id);
+            const wf = await api.media.waveform(projectId, apiMedia.id, 300);
+            useEditorStore.getState().setMediaWaveform(item.id, wf.peaks);
+          });
+
+        await Promise.all([metaPromise, uploadPromise]);
       } catch (err) {
-        setError('Failed to process file. Please try again.');
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(`Failed to process file: ${msg}`);
         setLoading(false);
       }
     },

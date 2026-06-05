@@ -1,5 +1,5 @@
 'use client';
-import { useRef, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import { Scissors } from 'lucide-react';
 import { cn, clamp, formatDuration } from '@/lib/utils';
 import { useEditorStore } from '@/store/editorStore';
@@ -57,7 +57,7 @@ interface ClipItemProps {
   isSelected: boolean;
 }
 
-export function ClipItem({ clip, pxPerSec, isSelected }: ClipItemProps) {
+export const ClipItem = memo(function ClipItem({ clip, pxPerSec, isSelected }: ClipItemProps) {
   const selectClip = useEditorStore((s) => s.selectClip);
   const updateClip = useEditorStore((s) => s.updateClip);
   const splitClipAtTime = useEditorStore((s) => s.splitClipAtTime);
@@ -241,7 +241,7 @@ export function ClipItem({ clip, pxPerSec, isSelected }: ClipItemProps) {
       </div>
     </div>
   );
-}
+});
 
 function FallbackBars({ type, width }: { type: 'video' | 'audio'; width: number }) {
   const bars = Math.max(4, Math.floor((width - 8) / 5));

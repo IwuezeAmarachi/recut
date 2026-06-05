@@ -1,4 +1,5 @@
 'use client';
+import { memo } from 'react';
 import { Film, Music, Captions } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ClipItem } from './ClipItem';
@@ -108,10 +109,10 @@ export function CaptionTrack({ captions, pxPerSec, totalWidth, onTrackClick }: C
   );
 }
 
-export function VideoTrack(props: Omit<TrackProps, 'label' | 'icon'>) {
+export const VideoTrack = memo(function VideoTrack(props: Omit<TrackProps, 'label' | 'icon'>) {
   return <TimelineTrack {...props} label="V" icon={<Film size={12} strokeWidth={1.75} />} />;
-}
+});
 
-export function AudioTrack(props: Omit<TrackProps, 'label' | 'icon'>) {
+export const AudioTrack = memo(function AudioTrack(props: Omit<TrackProps, 'label' | 'icon'>) {
   return <TimelineTrack {...props} label="A" icon={<Music size={12} strokeWidth={1.75} />} />;
-}
+});

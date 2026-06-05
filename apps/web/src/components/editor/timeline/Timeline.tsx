@@ -3,7 +3,7 @@ import { useRef, useCallback, useEffect } from 'react';
 import { useEditorStore } from '@/store/editorStore';
 import { TimelineRuler } from './TimelineRuler';
 import { VideoTrack, AudioTrack, CaptionTrack } from './TimelineTrack';
-import { onTime } from '@/lib/timeChannel';
+import { onTime, emitTime } from '@/lib/timeChannel';
 
 const TRACK_HEADER_W = 48;
 const BASE_PX_PER_SEC = 100;
@@ -16,7 +16,6 @@ export function Timeline() {
   const clips = useEditorStore((s) => s.clips);
   const captions = useEditorStore((s) => s.captions);
   const duration = useEditorStore((s) => s.duration);
-  const currentTime = useEditorStore((s) => s.currentTime);
   const zoom = useEditorStore((s) => s.zoom);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
   const setZoom = useEditorStore((s) => s.setZoom);
@@ -31,8 +30,10 @@ export function Timeline() {
 
   const seek = useCallback(
     (time: number) => {
+      const t = Math.max(0, Math.min(time, Math.max(duration, 1)));
       setPlaying(false);
-      setCurrentTime(Math.max(0, Math.min(time, Math.max(duration, 1))));
+      setCurrentTime(t);
+      emitTime(t); // update playhead DOM immediately without waiting for re-render
     },
     [setCurrentTime, setPlaying, duration],
   );
@@ -61,8 +62,8 @@ export function Timeline() {
     return unsubscribe;
   }, [pxPerSec]);
 
-  // Initial playhead position from Zustand (seek clicks etc.)
-  const playheadX = TRACK_HEADER_W + currentTime * pxPerSec;
+  // Playhead position — driven entirely by emitTime (seek + RAF), never from Zustand re-render
+  const playheadX = TRACK_HEADER_W; // initial; overwritten immediately by onTime effect
 
   // ── Pinch / scroll — attach once, use functional zoom update to avoid stale closure
   useEffect(() => {
@@ -107,7 +108,7 @@ export function Timeline() {
               <div
                 ref={rulerPlayheadRef}
                 className="pointer-events-none absolute top-0 h-full w-px bg-ink-1/70"
-                style={{ transform: `translateX(${currentTime * pxPerSec}px)` }}
+                style={{ transform: `translateX(0px)` }}
               />
             </div>
           </div>
