@@ -28,27 +28,24 @@ def _nr_process(input_path: str, output_path: str, prop_decrease: float) -> bool
 
         data, rate = sf.read(input_path)
 
+        nr_kwargs = dict(
+            sr=rate,
+            stationary=False,
+            prop_decrease=prop_decrease,
+            n_std_thresh_stationary=1.5,
+            freq_mask_smooth_hz=500,
+            time_mask_smooth_ms=50,
+        )
+
         if data.ndim > 1:
             # Process each channel independently, preserve stereo
             channels = [
-                nr.reduce_noise(
-                    y=data[:, i].astype(np.float32),
-                    sr=rate,
-                    stationary=False,
-                    prop_decrease=prop_decrease,
-                    n_std_thresh_stationary=1.0,
-                )
+                nr.reduce_noise(y=data[:, i].astype(np.float32), **nr_kwargs)
                 for i in range(data.shape[1])
             ]
             reduced = np.stack(channels, axis=1)
         else:
-            reduced = nr.reduce_noise(
-                y=data.astype(np.float32),
-                sr=rate,
-                stationary=False,
-                prop_decrease=prop_decrease,
-                n_std_thresh_stationary=1.0,
-            )
+            reduced = nr.reduce_noise(y=data.astype(np.float32), **nr_kwargs)
 
         sf.write(output_path, reduced.astype(np.float32), rate)
         return True
@@ -60,7 +57,7 @@ def _nr_process(input_path: str, output_path: str, prop_decrease: float) -> bool
 async def apply_rnnoise(input_path: str, output_path: str) -> bool:
     """Standard noise reduction. Handles fan, HVAC, hum, mic self-noise."""
     # Run CPU-bound processing off the event loop
-    ok = await asyncio.to_thread(_nr_process, input_path, output_path, 0.80)
+    ok = await asyncio.to_thread(_nr_process, input_path, output_path, 0.92)
     if ok:
         return True
 
@@ -94,7 +91,7 @@ async def apply_voice_isolation(input_path: str, output_path: str) -> tuple[bool
     if await _try_demucs(input_path, output_path):
         return True, "demucs"
 
-    ok = await asyncio.to_thread(_nr_process, input_path, output_path, 0.95)
+    ok = await asyncio.to_thread(_nr_process, input_path, output_path, 0.97)
     if ok:
         return True, "noisereduce"
 

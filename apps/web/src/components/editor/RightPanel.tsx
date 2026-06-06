@@ -8,7 +8,8 @@ export function RightPanel() {
   return (
     <aside className="flex w-[280px] shrink-0 flex-col border-l border-edge bg-surface-1">
       <Tabs.Root defaultValue="clip" className="flex flex-1 flex-col overflow-hidden">
-        <Tabs.List className="flex h-10 shrink-0 items-center border-b border-edge px-1 gap-0.5">
+        {/* iOS-style segmented tab bar */}
+        <Tabs.List className="flex shrink-0 items-center gap-1 border-b border-edge bg-surface-1 px-3 py-2">
           <TabTrigger value="clip">Clip</TabTrigger>
           <TabTrigger value="audio">Audio</TabTrigger>
           <TabTrigger value="captions">Captions</TabTrigger>
@@ -34,8 +35,9 @@ function TabTrigger({ value, children }: { value: string; children: React.ReactN
   return (
     <Tabs.Trigger
       value={value}
-      className="flex h-7 items-center rounded-md px-3 text-xs font-medium text-ink-3 transition-colors hover:text-ink-2
-        data-[state=active]:bg-surface-2 data-[state=active]:text-ink-1"
+      className="flex-1 h-7 rounded-lg text-2xs font-semibold text-ink-3 transition-all duration-150
+        hover:text-ink-2
+        data-[state=active]:bg-surface-3 data-[state=active]:text-ink-1 data-[state=active]:shadow-sm"
     >
       {children}
     </Tabs.Trigger>

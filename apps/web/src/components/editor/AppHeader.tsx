@@ -1,7 +1,6 @@
 'use client';
 import { useState, useRef } from 'react';
-import { Save, Download } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
+import { Download, Pencil, Check } from 'lucide-react';
 import { useEditorStore } from '@/store/editorStore';
 import { ExportModal } from './ExportModal';
 
@@ -13,60 +12,55 @@ export function AppHeader() {
   const [exportOpen, setExportOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const commitName = () => {
-    setProjectName(draft.trim() || 'Untitled Project');
-    setEditing(false);
-  };
+  const startEdit = () => { setDraft(projectName); setEditing(true); setTimeout(() => inputRef.current?.select(), 0); };
+  const commit = () => { setProjectName(draft.trim() || 'Untitled Project'); setEditing(false); };
 
   return (
     <>
-      <header className="flex h-[52px] shrink-0 items-center justify-between border-b border-edge bg-surface-1 px-4">
+      <header className="flex h-12 shrink-0 items-center justify-between border-b border-edge bg-surface-1/80 backdrop-blur-xl px-4 z-10">
         {/* Left — logo */}
-        <div className="flex items-center gap-2.5 w-44">
+        <div className="flex items-center gap-2.5 w-40">
           <RecutMark />
           <span className="text-sm font-semibold tracking-tight text-ink-1">Recut</span>
         </div>
 
         {/* Center — project name */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {editing ? (
-            <input
-              ref={inputRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={commitName}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') commitName();
-                if (e.key === 'Escape') { setDraft(projectName); setEditing(false); }
-              }}
-              autoFocus
-              className="h-7 w-52 rounded-md bg-surface-2 px-2.5 text-center text-sm text-ink-1 outline-none ring-1 ring-edge-strong"
-            />
+            <div className="flex items-center gap-1.5">
+              <input
+                ref={inputRef}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commit}
+                onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(projectName); setEditing(false); } }}
+                autoFocus
+                className="h-7 w-52 rounded-lg bg-surface-3 px-3 text-center text-sm font-medium text-ink-1 outline-none ring-1 ring-accent/60"
+              />
+              <button onClick={commit} className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent/20 text-accent hover:bg-accent/30 transition-colors">
+                <Check size={12} strokeWidth={2.5} />
+              </button>
+            </div>
           ) : (
             <button
-              onClick={() => { setDraft(projectName); setEditing(true); }}
-              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm font-medium text-ink-1 hover:bg-surface-2 transition-colors"
+              onClick={startEdit}
+              className="group flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-ink-1 hover:bg-surface-2 transition-colors"
             >
               {projectName}
+              <Pencil size={11} className="text-ink-3 opacity-0 group-hover:opacity-100 transition-opacity" strokeWidth={1.75} />
             </button>
           )}
-          <span className="text-2xs text-ink-3">Saved</span>
         </div>
 
-        {/* Right — actions */}
-        <div className="flex items-center gap-2 w-44 justify-end">
-          <Button variant="ghost" size="sm">
-            <Save size={14} strokeWidth={1.75} />
-            Save
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
+        {/* Right — export */}
+        <div className="flex items-center gap-2 w-40 justify-end">
+          <button
             onClick={() => setExportOpen(true)}
+            className="flex h-8 items-center gap-1.5 rounded-lg bg-accent px-4 text-xs font-semibold text-white shadow-lg shadow-accent/20 hover:bg-accent/90 active:scale-[0.98] transition-all"
           >
-            <Download size={14} strokeWidth={1.75} />
+            <Download size={13} strokeWidth={2} />
             Export
-          </Button>
+          </button>
         </div>
       </header>
 
@@ -78,11 +72,10 @@ export function AppHeader() {
 function RecutMark() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect x="2" y="2" width="9" height="9" rx="2" fill="#EBEBEB" />
-      <rect x="13" y="2" width="9" height="4" rx="1.5" fill="#555555" />
-      <rect x="13" y="8" width="9" height="3" rx="1.5" fill="#333333" />
-      <rect x="2" y="13" width="20" height="9" rx="2" fill="#282828" />
-      <rect x="5" y="16" width="6" height="3" rx="1" fill="#555555" />
+      <rect x="2" y="2" width="9" height="9" rx="2.5" fill="#F5F5F7" />
+      <rect x="13" y="2" width="9" height="4" rx="1.5" fill="rgba(245,245,247,0.35)" />
+      <rect x="13" y="8" width="9" height="3" rx="1.5" fill="rgba(245,245,247,0.2)" />
+      <rect x="2" y="13" width="20" height="9" rx="2.5" fill="#0A84FF" opacity="0.9" />
     </svg>
   );
 }
