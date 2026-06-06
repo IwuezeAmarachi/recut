@@ -24,7 +24,7 @@ export function PropertiesPanel() {
   const setSpeed = (speed: number) => updateClip(clip.id, { speed: clamp(speed, 0.1, 4) });
   const setTrimIn = (v: number) => updateClip(clip.id, { trimIn: clamp(v, 0, clip.duration - clip.trimOut - 0.1) });
   const setTrimOut = (v: number) => updateClip(clip.id, { trimOut: clamp(v, 0, clip.duration - clip.trimIn - 0.1) });
-  const setVolume = (v: number) => updateClip(clip.id, { volume: clamp(v, 0, 1) });
+  const setVolume = (v: number) => updateClip(clip.id, { volume: clamp(v, 0, 2) });
 
   return (
     <div className="space-y-1 p-4">
@@ -78,16 +78,34 @@ export function PropertiesPanel() {
           <input
             type="range"
             min={0}
-            max={1}
+            max={2}
             step={0.01}
             value={clip.volume}
             onChange={(e) => setVolume(parseFloat(e.target.value))}
             className="flex-1 accent-ink-2 cursor-pointer"
           />
-          <span className="w-8 text-right text-2xs text-ink-3 tabular-nums">
+          <span className={`w-10 text-right text-2xs tabular-nums ${clip.volume > 1 ? 'text-amber-400' : 'text-ink-3'}`}>
             {Math.round(clip.volume * 100)}%
           </span>
         </div>
+        <div className="mt-2 flex gap-1">
+          {[0, 50, 100, 150, 200].map((pct) => (
+            <button
+              key={pct}
+              onClick={() => setVolume(pct / 100)}
+              className={`flex-1 rounded py-1 text-2xs transition-colors ${
+                Math.round(clip.volume * 100) === pct
+                  ? 'bg-surface-4 text-ink-1'
+                  : 'text-ink-3 hover:text-ink-2 hover:bg-surface-3'
+              }`}
+            >
+              {pct}%
+            </button>
+          ))}
+        </div>
+        {clip.volume > 1 && (
+          <p className="mt-1.5 text-2xs text-amber-400/80">Boosted above 100% — may clip if too high</p>
+        )}
       </Section>
 
       {/* Position */}

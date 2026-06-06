@@ -35,6 +35,7 @@ class AudioProcessor {
   setNormalize(enabled: boolean): void { this.normalizeEnabled = enabled; this.rebuild(); }
   setClipVolume(vol: number): void {
     this.clipVolume = vol;
+    // GainNode supports >1 — this is how you boost beyond 100%
     if (this.gainNode) this.gainNode.gain.value = vol;
   }
 
