@@ -44,9 +44,16 @@ class AudioProcessor {
     if (this.gainNode) this.gainNode.gain.value = vol;
   }
 
+  private outputNode: AudioNode | null = null;
+
   private rebuild(): void {
     if (!this.ctx || !this.source) return;
+
+    // Disconnect source and old output to avoid double-routing to destination
     try { this.source.disconnect(); } catch { /* ok */ }
+    if (this.outputNode) {
+      try { this.outputNode.disconnect(this.ctx.destination); } catch { /* ok */ }
+    }
 
     let last: AudioNode = this.source;
 
@@ -58,36 +65,35 @@ class AudioProcessor {
     last = gain;
 
     if (this.nrEnabled) {
-      // High-pass — cuts sub-bass rumble and handling noise
+      // High-pass — cuts low-frequency rumble (HVAC, desk vibration)
       const hp = this.ctx.createBiquadFilter();
-      hp.type = 'highpass'; hp.frequency.value = 100; hp.Q.value = 0.9;
+      hp.type = 'highpass'; hp.frequency.value = 100; hp.Q.value = 0.7;
 
-      // Low-shelf — reduces bass/low-frequency background noise more aggressively
+      // Low-shelf — reduces bass-range noise
       const ls = this.ctx.createBiquadFilter();
-      ls.type = 'lowshelf'; ls.frequency.value = 250; ls.gain.value = -8;
+      ls.type = 'lowshelf'; ls.frequency.value = 200; ls.gain.value = -6;
 
-      // Electrical hum notch filters (50Hz + 60Hz mains and harmonics)
+      // Notch filters for 50Hz/60Hz mains hum and harmonics
       const humFreqs = [50, 100, 150, 60, 120, 180];
       const notches = humFreqs.map((freq) => {
         const n = this.ctx!.createBiquadFilter();
-        n.type = 'notch'; n.frequency.value = freq; n.Q.value = 25;
+        n.type = 'notch'; n.frequency.value = freq; n.Q.value = 20;
         return n;
       });
 
-      // High-shelf — cuts hiss and high-frequency noise
+      // High-shelf — reduces hiss and high-frequency noise
       const hs = this.ctx.createBiquadFilter();
-      hs.type = 'highshelf'; hs.frequency.value = 5500; hs.gain.value = -7;
+      hs.type = 'highshelf'; hs.frequency.value = 6000; hs.gain.value = -5;
 
-      // Noise gate via compressor — suppresses quiet/noise-only passages
-      const gate = this.ctx.createDynamicsCompressor();
-      gate.threshold.value = -50; gate.knee.value = 5;
-      gate.ratio.value = 10; gate.attack.value = 0.005; gate.release.value = 0.15;
+      // NOTE: No compressor here — a compressor with low threshold compresses
+      // speech MORE than noise, making background noise relatively louder.
+      // EQ-only approach is correct for client-side NR.
 
       last.connect(hp); hp.connect(ls);
       let node: AudioNode = ls;
       for (const n of notches) { node.connect(n); node = n; }
-      node.connect(hs); hs.connect(gate);
-      last = gate;
+      node.connect(hs);
+      last = hs;
     }
 
     if (this.normalizeEnabled) {
@@ -97,6 +103,7 @@ class AudioProcessor {
       last.connect(comp); last = comp;
     }
 
+    this.outputNode = last;
     last.connect(this.ctx.destination);
     if (this.ctx.state === 'suspended') this.ctx.resume();
   }
@@ -324,9 +331,23 @@ export function VideoPreview() {
 
             {/* NR indicator */}
             {noiseReductionEnabled && (
-              <div className="absolute right-3 top-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-2xs text-ink-2 backdrop-blur-sm">
-                <span className="h-1.5 w-1.5 rounded-full bg-ink-2 animate-pulse" />
-                Noise filter on
+              <div className="absolute right-3 top-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-2xs backdrop-blur-sm">
+                {activeMedia?.denoising ? (
+                  <>
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    <span className="text-amber-400">Processing noise…</span>
+                  </>
+                ) : activeMedia?.denoisedUrl ? (
+                  <>
+                    <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+                    <span className="text-green-400">AI noise removed</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="h-1.5 w-1.5 rounded-full bg-ink-2 animate-pulse" />
+                    <span className="text-ink-2">Audio filters on</span>
+                  </>
+                )}
               </div>
             )}
           </>

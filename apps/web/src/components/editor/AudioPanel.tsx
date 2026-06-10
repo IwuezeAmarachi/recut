@@ -26,9 +26,24 @@ export function AudioPanel() {
     setNoiseReduction(enabled);
     if (!enabled) return;
     for (const item of mediaItems) {
-      if (!item.apiId || item.denoisedUrl || item.denoising) continue;
+      if (item.denoisedUrl || item.denoising) continue;
+
       setMediaDenoising(item.id, true);
-      api.media.denoise(projectId, item.apiId)
+
+      // Auto-upload if the file was never sent to the server
+      let apiId = item.apiId;
+      if (!apiId) {
+        try {
+          const uploaded = await api.media.upload(projectId, item.file);
+          useEditorStore.getState().setMediaApiId(item.id, uploaded.id);
+          apiId = uploaded.id;
+        } catch {
+          setMediaDenoising(item.id, false);
+          continue;
+        }
+      }
+
+      api.media.denoise(projectId, apiId)
         .then((r) => setMediaDenoisedUrl(item.id, `${BASE}${r.url}`))
         .catch(() => setMediaDenoising(item.id, false));
     }
@@ -38,9 +53,23 @@ export function AudioPanel() {
     setVoiceIsolation(enabled);
     if (!enabled) return;
     for (const item of mediaItems) {
-      if (!item.apiId || item.isolatedUrl || item.isolating) continue;
+      if (item.isolatedUrl || item.isolating) continue;
+
       setMediaIsolating(item.id, true);
-      api.media.isolate(projectId, item.apiId)
+
+      let apiId = item.apiId;
+      if (!apiId) {
+        try {
+          const uploaded = await api.media.upload(projectId, item.file);
+          useEditorStore.getState().setMediaApiId(item.id, uploaded.id);
+          apiId = uploaded.id;
+        } catch {
+          setMediaIsolating(item.id, false);
+          continue;
+        }
+      }
+
+      api.media.isolate(projectId, apiId)
         .then((r) => setMediaIsolatedUrl(item.id, `${BASE}${r.url}`))
         .catch(() => setMediaIsolating(item.id, false));
     }
