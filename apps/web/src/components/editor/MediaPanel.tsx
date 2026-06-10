@@ -1,5 +1,5 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { Plus, Film, Music, Trash2, ChevronDown, Loader2 } from 'lucide-react';
 import { cn, ACCEPTED_VIDEO_TYPES, ACCEPTED_AUDIO_TYPES, getVideoDimensions, getAudioDuration, formatDuration, generateWaveformFromFile } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
@@ -18,6 +18,18 @@ export function MediaPanel() {
   const setMediaWaveform = useEditorStore((s) => s.setMediaWaveform);
   const removeMedia = useEditorStore((s) => s.removeMedia);
   const addClipFromMedia = useEditorStore((s) => s.addClipFromMedia);
+
+  // On mount: fetch waveforms for items that were uploaded but never got waveform data
+  useEffect(() => {
+    for (const item of mediaItems) {
+      if (item.apiId && !item.waveformPeaks?.length) {
+        api.media.waveform(projectId, item.apiId, 400)
+          .then((wf) => { if (wf.peaks?.length) setMediaWaveform(item.id, wf.peaks); })
+          .catch(() => {});
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally runs once on mount
 
   const handleFiles = async (files: FileList | null) => {
     if (!files) return;

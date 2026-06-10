@@ -30,13 +30,14 @@ def _nr_process(input_path: str, output_path: str, prop_decrease: float) -> bool
 
         nr_kwargs = dict(
             sr=rate,
-            # stationary=True captures a noise profile from quiet segments (fans,
-            # AC, room tone) and subtracts it cleanly — best for screen recordings
-            stationary=True,
+            # stationary=False adapts over time — critical for voice recordings
+            # because stationary=True builds the noise profile from the first
+            # ~0.5s and will strip the voice if the speaker starts immediately
+            stationary=False,
             prop_decrease=prop_decrease,
-            n_std_thresh_stationary=1.2,
-            freq_mask_smooth_hz=300,
-            time_mask_smooth_ms=25,
+            n_std_thresh_stationary=1.5,
+            freq_mask_smooth_hz=500,
+            time_mask_smooth_ms=50,
         )
 
         if data.ndim > 1:

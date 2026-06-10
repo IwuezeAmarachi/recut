@@ -69,8 +69,12 @@ export const ACCEPTED_VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/x-ms
 export const ACCEPTED_AUDIO_TYPES = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/flac', 'audio/aac'];
 export const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10 GB
 
+const WAVEFORM_MAX_FILE_BYTES = 80 * 1024 * 1024; // 80 MB — screen recordings are larger and will OOM
+
 /** Generate waveform peaks client-side from any audio/video file — no backend needed. */
 export async function generateWaveformFromFile(file: File, points = 400): Promise<number[]> {
+  // Skip large files — decodeAudioData would load the whole file into memory
+  if (file.size > WAVEFORM_MAX_FILE_BYTES) return [];
   try {
     const arrayBuffer = await file.arrayBuffer();
     // AudioContext.decodeAudioData works on both audio files and video containers
