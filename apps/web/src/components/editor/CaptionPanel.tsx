@@ -34,16 +34,35 @@ export function CaptionPanel() {
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
 
-  // Find first video with a server-side apiId (has been uploaded)
+  const anyVideo = mediaItems.find((m) => m.type === 'video');
   const uploadedVideo = mediaItems.find((m) => m.type === 'video' && m.apiId);
 
   const generateCaptions = async () => {
-    if (!uploadedVideo?.apiId) return;
     setGenerating(true);
     setGenError(null);
 
+    let activeVideo = uploadedVideo;
+
+    // Auto-upload if video exists but wasn't synced to server yet
+    if (!activeVideo) {
+      if (!anyVideo) {
+        setGenError('Import a video first.');
+        setGenerating(false);
+        return;
+      }
+      try {
+        const apiMedia = await api.media.upload(projectId, anyVideo.file);
+        useEditorStore.getState().setMediaApiId(anyVideo.id, apiMedia.id);
+        activeVideo = { ...anyVideo, apiId: apiMedia.id };
+      } catch {
+        setGenError('Cannot reach server — make sure the backend is running on port 8000.');
+        setGenerating(false);
+        return;
+      }
+    }
+
     try {
-      const { segments } = await api.media.transcribe(projectId, uploadedVideo.apiId);
+      const { segments } = await api.media.transcribe(projectId, activeVideo.apiId!);
 
       if (segments.length === 0) {
         setGenError('No speech detected in this video.');
@@ -73,7 +92,7 @@ export function CaptionPanel() {
     updateCaption(selected.id, { style: { ...selected.style, ...updates } });
   };
 
-  const canGenerate = !!uploadedVideo?.apiId && !uploadedVideo.uploading;
+  const canGenerate = !!anyVideo && !generating;
 
   return (
     <div className="flex flex-col gap-2 p-4">
@@ -121,11 +140,11 @@ export function CaptionPanel() {
             )}
           </Button>
 
-          {!uploadedVideo && (
+          {!anyVideo && (
             <p className="mt-2 text-2xs text-ink-3">Import a video first.</p>
           )}
-          {uploadedVideo?.uploading && (
-            <p className="mt-2 text-2xs text-ink-3">Waiting for upload to finish…</p>
+          {anyVideo && !uploadedVideo && !generating && (
+            <p className="mt-2 text-2xs text-ink-3">Video not yet synced — will upload automatically when you generate.</p>
           )}
         </div>
 

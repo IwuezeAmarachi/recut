@@ -68,3 +68,35 @@ export function getAudioDuration(file: File): Promise<number> {
 export const ACCEPTED_VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/webm'];
 export const ACCEPTED_AUDIO_TYPES = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/flac', 'audio/aac'];
 export const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10 GB
+
+/** Generate waveform peaks client-side from any audio/video file — no backend needed. */
+export async function generateWaveformFromFile(file: File, points = 400): Promise<number[]> {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    // AudioContext.decodeAudioData works on both audio files and video containers
+    // (extracts the audio track automatically in Chrome/Safari/Firefox)
+    const ctx = new AudioContext();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    await ctx.close();
+
+    const channelData = audioBuffer.getChannelData(0);
+    const chunkSize = Math.max(1, Math.floor(channelData.length / points));
+    const peaks: number[] = [];
+
+    for (let i = 0; i < points; i++) {
+      const start = i * chunkSize;
+      const end = Math.min(start + chunkSize, channelData.length);
+      let max = 0;
+      for (let j = start; j < end; j++) {
+        const abs = Math.abs(channelData[j]);
+        if (abs > max) max = abs;
+      }
+      peaks.push(max);
+    }
+
+    const maxPeak = Math.max(...peaks, 0.001);
+    return peaks.map((p) => Math.round((p / maxPeak) * 10000) / 10000);
+  } catch {
+    return [];
+  }
+}

@@ -2,7 +2,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { UploadCloud, AlertCircle } from 'lucide-react';
-import { cn, ACCEPTED_VIDEO_TYPES, ACCEPTED_AUDIO_TYPES, MAX_FILE_SIZE, getVideoDimensions, getAudioDuration, formatFileSize } from '@/lib/utils';
+import { cn, ACCEPTED_VIDEO_TYPES, ACCEPTED_AUDIO_TYPES, MAX_FILE_SIZE, getVideoDimensions, getAudioDuration, formatFileSize, generateWaveformFromFile } from '@/lib/utils';
 import { useEditorStore } from '@/store/editorStore';
 import { api } from '@/lib/api';
 
@@ -53,10 +53,12 @@ export function UploadZone() {
         });
         addClipFromMedia(item.id);
 
-        await api.projects.create(file.name.replace(/\.[^.]+$/, '') || 'Untitled', projectId);
+        // Try to register project on server — don't block if backend is offline
+        api.projects.create(file.name.replace(/\.[^.]+$/, '') || 'Untitled', projectId).catch(() => {});
+
         router.push(`/editor/${projectId}`);
 
-        // Metadata + upload run in parallel after navigation
+        // Local metadata — fast, always works
         const metaPromise = isVideo
           ? getVideoDimensions(file)
               .then(({ duration, width, height }) =>
@@ -67,14 +69,23 @@ export function UploadZone() {
               .then((duration) => useEditorStore.getState().updateMedia(item.id, { duration }))
               .catch(() => {});
 
-        const uploadPromise = api.media.upload(projectId, file, (pct) => setUploadPct(pct))
+        // Client-side waveform — no backend needed
+        generateWaveformFromFile(file, 400)
+          .then((peaks) => { if (peaks.length) useEditorStore.getState().setMediaWaveform(item.id, peaks); })
+          .catch(() => {});
+
+        // Server upload — optional; higher-quality waveform + NR + export need it
+        api.media.upload(projectId, file, (pct) => setUploadPct(pct))
           .then(async (apiMedia) => {
             setMediaApiId(item.id, apiMedia.id);
-            const wf = await api.media.waveform(projectId, apiMedia.id, 300);
+            const wf = await api.media.waveform(projectId, apiMedia.id, 400);
             useEditorStore.getState().setMediaWaveform(item.id, wf.peaks);
+          })
+          .catch(() => {
+            useEditorStore.getState().updateMedia(item.id, { uploading: false });
           });
 
-        await Promise.all([metaPromise, uploadPromise]);
+        await metaPromise;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setError(`Failed to process file: ${msg}`);

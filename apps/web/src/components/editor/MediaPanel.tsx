@@ -1,7 +1,7 @@
 'use client';
 import { useRef, useState } from 'react';
 import { Plus, Film, Music, Trash2, ChevronDown, Loader2 } from 'lucide-react';
-import { cn, ACCEPTED_VIDEO_TYPES, ACCEPTED_AUDIO_TYPES, getVideoDimensions, getAudioDuration, formatDuration } from '@/lib/utils';
+import { cn, ACCEPTED_VIDEO_TYPES, ACCEPTED_AUDIO_TYPES, getVideoDimensions, getAudioDuration, formatDuration, generateWaveformFromFile } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useEditorStore } from '@/store/editorStore';
@@ -49,14 +49,22 @@ export function MediaPanel() {
 
       metaPromise.catch(() => URL.revokeObjectURL(url));
 
-      // Upload to server, then fetch waveform in background
+      // Client-side waveform — always works, no backend needed
+      generateWaveformFromFile(file, 400)
+        .then((peaks) => { if (peaks.length) setMediaWaveform(item.id, peaks); })
+        .catch(() => {});
+
+      // Upload to server for higher-quality waveform, NR, and export
       api.media.upload(projectId, file)
         .then(async (apiMedia) => {
           setMediaApiId(item.id, apiMedia.id);
           const wf = await api.media.waveform(projectId, apiMedia.id, 400);
           setMediaWaveform(item.id, wf.peaks);
         })
-        .catch(() => { /* upload/waveform failed silently */ });
+        .catch(() => {
+          // Clear spinner — backend is offline, but local editing still works
+          updateMedia(item.id, { uploading: false });
+        });
     }
   };
 

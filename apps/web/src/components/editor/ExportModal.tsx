@@ -47,27 +47,41 @@ export function ExportModal({ open, onClose }: ExportModalProps) {
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   const startExport = async () => {
-    // Verify all media has been uploaded
-    const unuploaded = clips.filter((c) => {
-      const media = mediaItems.find((m) => m.id === c.mediaId);
-      return !media?.apiId;
-    });
-    if (unuploaded.length > 0) {
-      setErrorMsg('Some clips are still uploading — please wait a moment and try again.');
-      setState('error');
-      return;
-    }
-
     setState('processing');
     setProgress(0);
     setErrorMsg(null);
     setOutputUrl(null);
 
+    // Auto-upload any media that wasn't synced to the server yet
+    const needsUpload = clips.filter((c) => {
+      const media = mediaItems.find((m) => m.id === c.mediaId);
+      return media && !media.apiId;
+    });
+
+    if (needsUpload.length > 0) {
+      try {
+        await Promise.all(
+          needsUpload.map(async (clip) => {
+            const media = mediaItems.find((m) => m.id === clip.mediaId)!;
+            const apiMedia = await api.media.upload(projectId, media.file);
+            useEditorStore.getState().setMediaApiId(media.id, apiMedia.id);
+          }),
+        );
+      } catch {
+        setErrorMsg('Cannot reach server — make sure the backend is running on port 8000, then try again.');
+        setState('error');
+        return;
+      }
+    }
+
+    // Re-read fresh store state after potential uploads
+    const freshMedia = useEditorStore.getState().mediaItems;
+
     // Build export payload
     const exportClips = clips
       .filter((c) => c.type === 'video')
       .map((c) => {
-        const media = mediaItems.find((m) => m.id === c.mediaId)!;
+        const media = freshMedia.find((m) => m.id === c.mediaId)!;
         return {
           media_id: media.apiId!,
           start_time: c.startTime,
