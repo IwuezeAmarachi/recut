@@ -54,15 +54,15 @@ function WaveformStrip({
 
               return peaks.map((amp, i) => {
                 const bx = clipStartX + (i / peaks.length) * clipW;
-                const h = Math.max(1, amp * 30);
+                const h = Math.max(2, amp * 32);
                 const by = (36 - h) / 2;
                 return (
                   <rect
                     key={`${clip.id}-${i}`}
                     x={bx} y={by}
-                    width={barW * 0.65} height={h}
-                    rx={0.4}
-                    fill="rgba(251,191,36,0.55)"
+                    width={Math.max(1, barW)} height={h}
+                    rx={0.3}
+                    fill="rgba(251,191,36,0.7)"
                   />
                 );
               });

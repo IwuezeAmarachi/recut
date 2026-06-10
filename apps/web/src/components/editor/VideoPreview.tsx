@@ -11,10 +11,12 @@ import type { Caption } from '@/types/editor';
 class AudioProcessor {
   private ctx: AudioContext | null = null;
   private source: MediaElementAudioSourceNode | null = null;
-  private gainNode: GainNode | null = null;
+  private clipGainNode: GainNode | null = null;
+  private masterGainNode: GainNode | null = null;
   private nrEnabled = false;
   private normalizeEnabled = false;
   private clipVolume = 1;
+  private masterVolume = 1;
 
   init(video: HTMLVideoElement): void {
     if (this.ctx) {
@@ -24,6 +26,8 @@ class AudioProcessor {
     try {
       this.ctx = new AudioContext();
       this.source = this.ctx.createMediaElementSource(video);
+      // Mute the video element — audio goes entirely through Web Audio
+      video.volume = 1;
       this.rebuild();
     } catch {
       this.ctx = null;
@@ -34,14 +38,16 @@ class AudioProcessor {
   setNR(enabled: boolean): void {
     this.nrEnabled = enabled;
     this.rebuild();
-    // Re-init if context was suspended (e.g. after toggling before first play)
     if (this.ctx?.state === 'suspended') this.ctx.resume();
   }
   setNormalize(enabled: boolean): void { this.normalizeEnabled = enabled; this.rebuild(); }
   setClipVolume(vol: number): void {
     this.clipVolume = vol;
-    // GainNode supports >1 — this is how you boost beyond 100%
-    if (this.gainNode) this.gainNode.gain.value = vol;
+    if (this.clipGainNode) this.clipGainNode.gain.value = vol;
+  }
+  setMasterVolume(vol: number): void {
+    this.masterVolume = vol;
+    if (this.masterGainNode) this.masterGainNode.gain.value = vol;
   }
 
   private outputNode: AudioNode | null = null;
@@ -49,7 +55,6 @@ class AudioProcessor {
   private rebuild(): void {
     if (!this.ctx || !this.source) return;
 
-    // Disconnect source and old output to avoid double-routing to destination
     try { this.source.disconnect(); } catch { /* ok */ }
     if (this.outputNode) {
       try { this.outputNode.disconnect(this.ctx.destination); } catch { /* ok */ }
@@ -57,12 +62,12 @@ class AudioProcessor {
 
     let last: AudioNode = this.source;
 
-    // Per-clip gain
-    const gain = this.ctx.createGain();
-    gain.gain.value = this.clipVolume;
-    this.gainNode = gain;
-    last.connect(gain);
-    last = gain;
+    // Per-clip gain (supports >1 for volume boost)
+    const clipGain = this.ctx.createGain();
+    clipGain.gain.value = this.clipVolume;
+    this.clipGainNode = clipGain;
+    last.connect(clipGain);
+    last = clipGain;
 
     if (this.nrEnabled) {
       // High-pass — cuts low-frequency rumble (HVAC, desk vibration)
@@ -103,8 +108,14 @@ class AudioProcessor {
       last.connect(comp); last = comp;
     }
 
-    this.outputNode = last;
-    last.connect(this.ctx.destination);
+    // Master volume — at the very end so it controls all audio uniformly
+    const masterGain = this.ctx.createGain();
+    masterGain.gain.value = this.masterVolume;
+    this.masterGainNode = masterGain;
+    last.connect(masterGain);
+
+    this.outputNode = masterGain;
+    masterGain.connect(this.ctx.destination);
     if (this.ctx.state === 'suspended') this.ctx.resume();
   }
 
@@ -177,8 +188,10 @@ export function VideoPreview() {
     if (newSrc) video.load();
   }, [activeMedia?.url, activeMedia?.denoisedUrl, activeMedia?.isolatedUrl, noiseReductionEnabled, voiceIsolationEnabled]);
 
-  // ── Volume ─────────────────────────────────────────────────────────────────
+  // ── Volume — through Web Audio master gain (video.volume ignored by Chrome) ──
   useEffect(() => {
+    audioProc.current.setMasterVolume(masterVolume);
+    // Fallback: also set video.volume for browsers without Web Audio active yet
     if (videoRef.current) videoRef.current.volume = masterVolume;
   }, [masterVolume]);
 

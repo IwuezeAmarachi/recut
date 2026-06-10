@@ -43,7 +43,8 @@ export function AudioPanel() {
         }
       }
 
-      api.media.denoise(projectId, apiId)
+      // force=true busts any cached denoised file so fresh NR params are applied
+      api.media.denoise(projectId, apiId, true)
         .then((r) => setMediaDenoisedUrl(item.id, `${BASE}${r.url}`))
         .catch(() => setMediaDenoising(item.id, false));
     }

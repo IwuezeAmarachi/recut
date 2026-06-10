@@ -119,7 +119,7 @@ async def get_waveform(
 
 
 @router.post("/{project_id}/media/{media_id}/denoise")
-async def denoise_media(project_id: str, media_id: str) -> dict:
+async def denoise_media(project_id: str, media_id: str, force: bool = False) -> dict:
     bucket = media_store.get(project_id, {})
     media = bucket.get(media_id)
     if not media:
@@ -131,6 +131,10 @@ async def denoise_media(project_id: str, media_id: str) -> dict:
 
     dest_name = src_path.stem + "_denoised" + src_path.suffix
     dest_path = settings.upload_dir / project_id / dest_name
+
+    # Bust cache when force=True (e.g. after NR parameter changes)
+    if force and dest_path.exists():
+        dest_path.unlink(missing_ok=True)
 
     # Return cached result if already denoised
     if dest_path.exists():

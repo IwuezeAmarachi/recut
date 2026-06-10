@@ -59,8 +59,9 @@ def _nr_process(input_path: str, output_path: str, prop_decrease: float) -> bool
 
 async def apply_rnnoise(input_path: str, output_path: str) -> bool:
     """Standard noise reduction. Handles fan, HVAC, hum, mic self-noise."""
-    # Run CPU-bound processing off the event loop
-    ok = await asyncio.to_thread(_nr_process, input_path, output_path, 0.92)
+    # 0.75 prop_decrease: removes ~75% of background noise while preserving voice.
+    # Higher values (0.9+) bleed into voice frequencies and strip the speaker.
+    ok = await asyncio.to_thread(_nr_process, input_path, output_path, 0.75)
     if ok:
         return True
 

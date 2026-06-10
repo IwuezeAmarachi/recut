@@ -23,12 +23,12 @@ function Waveform({
   return (
     <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none" viewBox={`0 0 ${visible.length} 100`}>
       {visible.map((amp, i) => {
-        const h = Math.max(2, amp * 80);
+        const h = Math.max(4, amp * 80);
         const y = (100 - h) / 2;
         return (
           <rect
-            key={i} x={i} y={y} width={0.7} height={h} rx={0.3}
-            fill={isAudio ? 'rgba(48,209,88,0.65)' : 'rgba(255,255,255,0.55)'}
+            key={i} x={i} y={y} width={1} height={h} rx={0}
+            fill={isAudio ? 'rgba(48,209,88,0.7)' : 'rgba(255,255,255,0.6)'}
           />
         );
       })}
