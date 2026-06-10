@@ -5,8 +5,10 @@ import {
   type Tool,
   type ExportSettings,
   type Caption,
+  type VideoBackground,
   clipEffectiveDuration,
   DEFAULT_CAPTION_STYLE,
+  DEFAULT_VIDEO_BACKGROUND,
 } from '@/types/editor';
 import { generateId } from '@/lib/utils';
 
@@ -29,6 +31,7 @@ interface EditorStore {
   masterVolume: number;
   exportSettings: ExportSettings;
   captionsGenerating: boolean;
+  videoBackground: VideoBackground;
 
   setProjectId: (id: string) => void;
   setProjectName: (name: string) => void;
@@ -64,6 +67,7 @@ interface EditorStore {
   removeCaption: (id: string) => void;
   selectCaption: (id: string | null) => void;
   setCaptionsGenerating: (v: boolean) => void;
+  setVideoBackground: (update: Partial<VideoBackground>) => void;
 
   reset: () => void;
 }
@@ -93,6 +97,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   masterVolume: 1,
   exportSettings: DEFAULT_EXPORT,
   captionsGenerating: false,
+  videoBackground: { ...DEFAULT_VIDEO_BACKGROUND },
 
   setProjectId: (id) => set({ projectId: id }),
   setProjectName: (name) => set({ projectName: name }),
@@ -251,6 +256,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   selectCaption: (id) => set({ selectedCaptionId: id, selectedClipId: null }),
   setCaptionsGenerating: (v) => set({ captionsGenerating: v }),
+  setVideoBackground: (update) =>
+    set((s) => ({ videoBackground: { ...s.videoBackground, ...update } })),
 
   reset: () =>
     set({
@@ -272,5 +279,6 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       masterVolume: 1,
       exportSettings: DEFAULT_EXPORT,
       captionsGenerating: false,
+      videoBackground: { ...DEFAULT_VIDEO_BACKGROUND },
     }),
 }));

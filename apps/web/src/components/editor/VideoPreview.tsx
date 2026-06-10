@@ -31,7 +31,12 @@ class AudioProcessor {
     }
   }
 
-  setNR(enabled: boolean): void { this.nrEnabled = enabled; this.rebuild(); }
+  setNR(enabled: boolean): void {
+    this.nrEnabled = enabled;
+    this.rebuild();
+    // Re-init if context was suspended (e.g. after toggling before first play)
+    if (this.ctx?.state === 'suspended') this.ctx.resume();
+  }
   setNormalize(enabled: boolean): void { this.normalizeEnabled = enabled; this.rebuild(); }
   setClipVolume(vol: number): void {
     this.clipVolume = vol;
@@ -53,27 +58,36 @@ class AudioProcessor {
     last = gain;
 
     if (this.nrEnabled) {
+      // High-pass — cuts sub-bass rumble and handling noise
       const hp = this.ctx.createBiquadFilter();
-      hp.type = 'highpass'; hp.frequency.value = 80; hp.Q.value = 0.7;
+      hp.type = 'highpass'; hp.frequency.value = 100; hp.Q.value = 0.9;
 
+      // Low-shelf — reduces bass/low-frequency background noise more aggressively
       const ls = this.ctx.createBiquadFilter();
-      ls.type = 'lowshelf'; ls.frequency.value = 200; ls.gain.value = -4;
+      ls.type = 'lowshelf'; ls.frequency.value = 250; ls.gain.value = -8;
 
+      // Electrical hum notch filters (50Hz + 60Hz mains and harmonics)
       const humFreqs = [50, 100, 150, 60, 120, 180];
       const notches = humFreqs.map((freq) => {
         const n = this.ctx!.createBiquadFilter();
-        n.type = 'notch'; n.frequency.value = freq; n.Q.value = 30;
+        n.type = 'notch'; n.frequency.value = freq; n.Q.value = 25;
         return n;
       });
 
+      // High-shelf — cuts hiss and high-frequency noise
       const hs = this.ctx.createBiquadFilter();
-      hs.type = 'highshelf'; hs.frequency.value = 8000; hs.gain.value = -3;
+      hs.type = 'highshelf'; hs.frequency.value = 5500; hs.gain.value = -7;
+
+      // Noise gate via compressor — suppresses quiet/noise-only passages
+      const gate = this.ctx.createDynamicsCompressor();
+      gate.threshold.value = -50; gate.knee.value = 5;
+      gate.ratio.value = 10; gate.attack.value = 0.005; gate.release.value = 0.15;
 
       last.connect(hp); hp.connect(ls);
       let node: AudioNode = ls;
       for (const n of notches) { node.connect(n); node = n; }
-      node.connect(hs);
-      last = hs;
+      node.connect(hs); hs.connect(gate);
+      last = gate;
     }
 
     if (this.normalizeEnabled) {
@@ -115,6 +129,7 @@ export function VideoPreview() {
   const noiseReductionEnabled = useEditorStore((s) => s.noiseReductionEnabled);
   const voiceIsolationEnabled = useEditorStore((s) => s.voiceIsolationEnabled);
   const normalizeAudio = useEditorStore((s) => s.normalizeAudio);
+  const videoBackground = useEditorStore((s) => s.videoBackground);
   const setPlaying = useEditorStore((s) => s.setPlaying);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
   const setMasterVolume = useEditorStore((s) => s.setMasterVolume);
@@ -250,24 +265,48 @@ export function VideoPreview() {
   const hasMedia = mediaItems.length > 0;
   const muted = masterVolume === 0;
 
+  // ── Background style ───────────────────────────────────────────────────────
+  const bgStyle: React.CSSProperties = (() => {
+    const { type, color, gradientFrom, gradientTo, gradientAngle } = videoBackground;
+    if (type === 'solid') return { background: color };
+    if (type === 'gradient') return { background: `linear-gradient(${gradientAngle}deg, ${gradientFrom}, ${gradientTo})` };
+    return { background: '#0A0A0A' };
+  })();
+
+  const hasBackground = videoBackground.type !== 'none';
+  const videoPadding = hasBackground ? `${videoBackground.padding}%` : '0px';
+  const videoRadius = hasBackground ? videoBackground.cornerRadius : 0;
+
   return (
     <div className="flex flex-1 flex-col bg-bg">
       {/* Video area */}
-      <div className="relative flex flex-1 items-center justify-center bg-[#0A0A0A] overflow-hidden">
+      <div
+        className="relative flex flex-1 items-center justify-center overflow-hidden transition-all duration-500"
+        style={bgStyle}
+      >
         {hasMedia ? (
           <>
-            <video
-              ref={videoRef}
-              className="max-h-full max-w-full"
-              style={{
-                aspectRatio:
-                  activeMedia?.width && activeMedia?.height
-                    ? `${activeMedia.width}/${activeMedia.height}`
-                    : '16/9',
-              }}
-              onEnded={() => setPlaying(false)}
-              playsInline
-            />
+            <div
+              className="flex items-center justify-center max-h-full max-w-full transition-all duration-300"
+              style={{ padding: videoPadding, maxHeight: '100%', maxWidth: '100%' }}
+            >
+              <video
+                ref={videoRef}
+                className="max-h-full max-w-full transition-all duration-300"
+                style={{
+                  aspectRatio:
+                    activeMedia?.width && activeMedia?.height
+                      ? `${activeMedia.width}/${activeMedia.height}`
+                      : '16/9',
+                  borderRadius: videoRadius,
+                  boxShadow: hasBackground
+                    ? '0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06)'
+                    : 'none',
+                }}
+                onEnded={() => setPlaying(false)}
+                playsInline
+              />
+            </div>
 
             {/* Caption overlay */}
             {activeCaption && (

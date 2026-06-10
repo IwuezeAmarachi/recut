@@ -80,3 +80,25 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   background: true,
   backgroundOpacity: 0.65,
 };
+
+export type VideoBackgroundType = 'none' | 'solid' | 'gradient';
+
+export interface VideoBackground {
+  type: VideoBackgroundType;
+  color: string;
+  gradientFrom: string;
+  gradientTo: string;
+  gradientAngle: number;
+  padding: number;       // 0–15 (% of container)
+  cornerRadius: number;  // 0–24 px
+}
+
+export const DEFAULT_VIDEO_BACKGROUND: VideoBackground = {
+  type: 'none',
+  color: '#1e293b',
+  gradientFrom: '#0f0c29',
+  gradientTo: '#302b63',
+  gradientAngle: 135,
+  padding: 4,
+  cornerRadius: 8,
+};

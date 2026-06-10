@@ -10,7 +10,6 @@ interface TimelineRulerProps {
 export function TimelineRuler({ pxPerSec, duration, onSeek }: TimelineRulerProps) {
   const totalWidth = Math.max(duration * pxPerSec + 200, 800);
 
-  // Determine tick intervals based on zoom
   const tickInterval = pxPerSec >= 150 ? 0.5 : pxPerSec >= 80 ? 1 : pxPerSec >= 40 ? 2 : pxPerSec >= 20 ? 5 : 10;
   const labelEvery = pxPerSec >= 80 ? 5 : 10;
 
@@ -24,13 +23,12 @@ export function TimelineRuler({ pxPerSec, duration, onSeek }: TimelineRulerProps
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    onSeek(x / pxPerSec);
+    onSeek((e.clientX - rect.left) / pxPerSec);
   };
 
   return (
     <div
-      className="relative h-7 shrink-0 cursor-pointer select-none"
+      className="relative h-6 shrink-0 cursor-pointer select-none"
       style={{ width: totalWidth }}
       onClick={handleClick}
     >
@@ -38,14 +36,19 @@ export function TimelineRuler({ pxPerSec, duration, onSeek }: TimelineRulerProps
         const x = time * pxPerSec;
         return (
           <div key={time} className="absolute top-0 flex flex-col items-start" style={{ left: x }}>
-            <div
-              className="w-px bg-edge"
-              style={{ height: isLabel ? 10 : 6, marginTop: isLabel ? 0 : 4 }}
-            />
+            {/* Tick mark — dot for minor, line for major */}
+            {isLabel ? (
+              <div className="w-px bg-edge-strong" style={{ height: 8, marginTop: 0 }} />
+            ) : (
+              <div
+                className="rounded-full bg-edge-strong"
+                style={{ width: 1, height: 3, marginTop: 4 }}
+              />
+            )}
             {isLabel && (
               <span
-                className="mt-0.5 whitespace-nowrap font-mono text-2xs text-ink-3 tabular-nums"
-                style={{ transform: 'translateX(-50%)' }}
+                className="mt-0.5 whitespace-nowrap font-mono text-2xs tabular-nums"
+                style={{ transform: 'translateX(-50%)', color: 'rgba(235,235,245,0.35)' }}
               >
                 {formatDuration(time)}
               </span>
