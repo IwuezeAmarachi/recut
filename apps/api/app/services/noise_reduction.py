@@ -1,14 +1,12 @@
 """
-Audio noise reduction using noisereduce (spectral gating) as primary method.
+Audio processing using FFmpeg arnndn (RNNoise neural network) as primary method.
 
-noisereduce is far superior to FFmpeg filters for real-world noise because it
-learns the noise profile from the audio itself — unlike arnndn/afftdn which use
-fixed filter banks. It handles fans, AC, hum, AND competing voices/laughter.
+arnndn is a recurrent neural network trained specifically for speech enhancement.
+It CANNOT remove the speaker's voice because it was trained to separate speech
+from noise — it only removes what is statistically not speech.
 
-Two modes:
-  apply_rnnoise()        — standard: prop_decrease=0.80, non-stationary
-  apply_voice_isolation() — aggressive: prop_decrease=0.95, strips background
-                            speech. Tries Demucs first if installed.
+noisereduce (spectral gating) is used only as a last resort because it works on
+frequency bands and cannot distinguish voice from same-frequency noise.
 """
 import asyncio
 import shutil
@@ -16,68 +14,12 @@ from pathlib import Path
 from app.core.config import settings
 
 
-def _nr_process(input_path: str, output_path: str, prop_decrease: float) -> bool:
-    """
-    Synchronous noisereduce + FFmpeg fallback. Runs in a thread pool so the
-    event loop is never blocked.
-    """
-    import numpy as np
-    try:
-        import noisereduce as nr
-        import soundfile as sf
-
-        data, rate = sf.read(input_path)
-
-        nr_kwargs = dict(
-            sr=rate,
-            # stationary=False adapts over time — critical for voice recordings
-            # because stationary=True builds the noise profile from the first
-            # ~0.5s and will strip the voice if the speaker starts immediately
-            stationary=False,
-            prop_decrease=prop_decrease,
-            n_std_thresh_stationary=1.5,
-            freq_mask_smooth_hz=500,
-            time_mask_smooth_ms=50,
-        )
-
-        if data.ndim > 1:
-            # Process each channel independently, preserve stereo
-            channels = [
-                nr.reduce_noise(y=data[:, i].astype(np.float32), **nr_kwargs)
-                for i in range(data.shape[1])
-            ]
-            reduced = np.stack(channels, axis=1)
-        else:
-            reduced = nr.reduce_noise(y=data.astype(np.float32), **nr_kwargs)
-
-        sf.write(output_path, reduced.astype(np.float32), rate)
-        return True
-
-    except Exception:
-        return False
-
-
-async def apply_rnnoise(input_path: str, output_path: str) -> bool:
-    """Standard noise reduction. Handles fan, HVAC, hum, mic self-noise."""
-    # 0.75 prop_decrease: removes ~75% of background noise while preserving voice.
-    # Higher values (0.9+) bleed into voice frequencies and strip the speaker.
-    ok = await asyncio.to_thread(_nr_process, input_path, output_path, 0.75)
-    if ok:
-        return True
-
-    # FFmpeg fallback — always available
-    chain = (
-        "arnndn,arnndn,"
-        "anlmdn=s=5:p=0.002:r=0.002:m=0,"
-        "afftdn=nr=24:nf=-30:tn=1,"
-        "adeclick=w=55:o=25:a=2,"
-        "agate=threshold=0.02:ratio=2:attack=5:release=350,"
-        "acompressor=threshold=0.1:ratio=3:attack=5:release=80:makeup=1.5"
-    )
+async def _ffmpeg_filter(input_path: str, output_path: str, af_chain: str) -> bool:
+    """Run an FFmpeg audio filter chain. Returns True on success."""
     proc = await asyncio.create_subprocess_exec(
         settings.ffmpeg_path,
         "-y", "-i", input_path,
-        "-af", chain,
+        "-af", af_chain,
         "-c:a", "pcm_s16le", "-ar", "48000",
         output_path,
         stdout=asyncio.subprocess.DEVNULL,
@@ -87,38 +29,74 @@ async def apply_rnnoise(input_path: str, output_path: str) -> bool:
     return proc.returncode == 0
 
 
+def _nr_fallback(input_path: str, output_path: str, prop_decrease: float) -> bool:
+    """
+    noisereduce spectral gating — last resort only.
+    Keep prop_decrease ≤ 0.5 to avoid stripping voice frequencies.
+    """
+    import numpy as np
+    try:
+        import noisereduce as nr
+        import soundfile as sf
+
+        data, rate = sf.read(input_path)
+        kwargs = dict(
+            sr=rate,
+            stationary=False,      # adapt over time — don't build profile from first 0.5s
+            prop_decrease=prop_decrease,
+            n_std_thresh_stationary=1.5,
+            freq_mask_smooth_hz=500,
+            time_mask_smooth_ms=50,
+        )
+        if data.ndim > 1:
+            channels = [
+                nr.reduce_noise(y=data[:, i].astype(np.float32), **kwargs)
+                for i in range(data.shape[1])
+            ]
+            reduced = np.stack(channels, axis=1)
+        else:
+            reduced = nr.reduce_noise(y=data.astype(np.float32), **kwargs)
+
+        sf.write(output_path, reduced.astype(np.float32), rate)
+        return True
+    except Exception:
+        return False
+
+
+async def apply_rnnoise(input_path: str, output_path: str) -> bool:
+    """
+    Standard noise reduction — fan, HVAC, hum, mic hiss, room tone.
+
+    Uses arnndn (RNNoise NN) as primary: trained to preserve speech while
+    removing background noise. Voice is never stripped.
+    afftdn adds gentle FFT denoising on residual noise.
+    highpass removes sub-80Hz rumble (desk vibration, handling noise).
+    """
+    chain = "arnndn,afftdn=nr=10:nf=-25:tn=1,highpass=f=80"
+    if await _ffmpeg_filter(input_path, output_path, chain):
+        return True
+
+    # Last resort: very light spectral gating (0.5 = remove 50% of noise floor)
+    return await asyncio.to_thread(_nr_fallback, input_path, output_path, 0.50)
+
+
 async def apply_voice_isolation(input_path: str, output_path: str) -> tuple[bool, str]:
     """
-    Aggressive voice isolation — removes background speech, laughter, music.
-    Tries Demucs first (best quality), then noisereduce at max aggression.
+    Voice isolation — removes background speech, laughter, music.
+    Tries Demucs first (best quality, true source separation).
+    Falls back to double-pass arnndn + afftdn (strong but speech-safe).
     """
     if await _try_demucs(input_path, output_path):
         return True, "demucs"
 
-    ok = await asyncio.to_thread(_nr_process, input_path, output_path, 0.97)
-    if ok:
-        return True, "noisereduce"
+    # Double-pass arnndn for stronger isolation + afftdn cleanup
+    chain = "arnndn,arnndn,afftdn=nr=20:nf=-30:tn=1,highpass=f=100"
+    if await _ffmpeg_filter(input_path, output_path, chain):
+        return True, "ffmpeg"
 
-    # Last resort FFmpeg
-    chain = (
-        "arnndn,arnndn,arnndn,"
-        "anlmdn=s=25:p=0.002:r=0.003:m=0,"
-        "afftdn=nr=40:nf=-35:tn=1,"
-        "adeclick=w=55:o=25:a=2,"
-        "agate=threshold=0.025:ratio=3:attack=5:release=400,"
-        "acompressor=threshold=0.1:ratio=4:attack=5:release=80:makeup=2"
-    )
-    proc = await asyncio.create_subprocess_exec(
-        settings.ffmpeg_path,
-        "-y", "-i", input_path,
-        "-af", chain,
-        "-c:a", "pcm_s16le", "-ar", "48000",
-        output_path,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    await proc.communicate()
-    return proc.returncode == 0, "ffmpeg"
+    # Last resort: moderate spectral gating
+    ok = await asyncio.to_thread(_nr_fallback, input_path, output_path, 0.65)
+    return ok, "noisereduce"
 
 
 async def _try_demucs(input_path: str, output_path: str) -> bool:

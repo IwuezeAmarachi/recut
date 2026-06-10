@@ -301,23 +301,30 @@ export function VideoPreview() {
     <div className="flex flex-1 flex-col bg-bg">
       {/* Video area */}
       <div
-        className="relative flex flex-1 items-center justify-center overflow-hidden transition-all duration-500"
+        className="relative flex flex-1 items-center justify-center transition-all duration-500"
         style={bgStyle}
       >
         {hasMedia ? (
           <>
             <div
-              className="flex items-center justify-center max-h-full max-w-full transition-all duration-300"
-              style={{ padding: videoPadding, maxHeight: '100%', maxWidth: '100%' }}
+              className="flex items-center justify-center transition-all duration-300"
+              style={{
+                padding: videoPadding,
+                width: '100%',
+                height: '100%',
+                boxSizing: 'border-box',
+              }}
             >
               <video
                 ref={videoRef}
-                className="max-h-full max-w-full transition-all duration-300"
+                className="transition-all duration-300"
                 style={{
-                  aspectRatio:
-                    activeMedia?.width && activeMedia?.height
-                      ? `${activeMedia.width}/${activeMedia.height}`
-                      : '16/9',
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  width: 'auto',
+                  height: 'auto',
+                  display: 'block',
+                  objectFit: 'contain',
                   borderRadius: videoRadius,
                   boxShadow: hasBackground
                     ? '0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06)'
